@@ -36,7 +36,7 @@ double getElapsedTime(const timespec start, const timespec end) {
 }
 
 void serial(double* leftInput, double* rightInput, double* output,
-int c, int p, int l, int r, int q, int i) {
+int c, int l, int r, int q, int i) {
 
   for (int cl = 0; cl < c; cl++) {
     for (int lbf = 0; lbf < l; lbf++) {
@@ -44,13 +44,13 @@ int c, int p, int l, int r, int q, int i) {
         double tmpVal = 0;
         for (int qp = 0; qp < q; qp++) {
           for (int iVec = 0; iVec < i; iVec++) {
-            tmpVal += leftFields(cl, lbf, qp, iVec)*rightFields(cl, rbf, qp, iVec);
+            tmpVal += leftInput[cl*l*q*i+lbf*q*i+qp*i+iVec]*rightInput[cl*r*q*i+rbf*q*i+qp*i+iVec];
           } //D-loop
         } // P-loop
-        outputFields[cl * lbf * rbf] = tmpVal;
+        output[cl*l*r+lbf*r+rbf] = tmpVal;
       } // R-loop
     } // L-loop
-  } // C-loop
+    }
 }
 
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
@@ -68,18 +68,19 @@ struct ContractFieldFieldVectorFunctor {
   ContractFieldFieldVectorFunctor(LeftViewType leftInput,
   RightViewType rightInput,
   OutputViewType output,
-  int numPoints,
-  int dimVec,
-  int numLeftFields,
-  int numRightFields) :
+  int c,
+  int l,
+  int r,
+  int q,
+  int i) :
   _leftInput(leftInput),
   _rightInput(rightInput),
   _output(output),
-  _numCells(numCells),
-  _numPoints(numPoints),
-  _numLeftFields(numLeftFields),
-  _numRightFields(numRightFields),
-  _dimVec(dimVec)
+  _numCells(c),
+  _numPoints(q),
+  _numLeftFields(l),
+  _numRightFields(r),
+  _dimVec(i)
   {
     // Nothing to do
   }
@@ -88,24 +89,24 @@ struct ContractFieldFieldVectorFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
 
-    int matrixIndex = elementIndex % _numCells;
+    int matrixIndex = elementIndex / (_numRightFields*_numLeftFields);
     int rbf = matrixIndex % _numRightFields;
-    int lbf = matrixIndex % _numLeftFields;
+    int lbf = matrixIndex / _numRightFields;
 
     double tmpVal = 0;
-    for (int qp = 0; qp < numPoints; qp++) {
-      for (int iVec = 0; iVec < dimVec; iVec++) {
-        tmpVal += leftFields(cl, qp, iVec, lbf)*rightFields(cl, qp, iVec, rbf);
+    for (int qp = 0; qp < _numPoints; qp++) {
+      for (int iVec = 0; iVec < _dimVec; iVec++) {
+        tmpVal += _leftInput(matrixIndex, qp, iVec, lbf)*_rightInput(matrixIndex, qp, iVec, rbf);
       } //D-loop
     } // P-loop
-    outputFields(cl, lbf, rbf) = tmpVal;
+    _output(matrixIndex, lbf, rbf) = tmpVal;
   }
 };
 
 
 
 int main(int argc, char* argv[]) {
-  int c=10000, l=10, r=10, q = 10, i = 10;
+  int c=1, l=1, r=10, q = 10, i = 10;
   const int repeats = 10;
 
   timespec tic;
@@ -132,17 +133,17 @@ int main(int argc, char* argv[]) {
 
 
   for (int cl = 0; cl < c; ++cl) {
-    for (int qp = 0; qp < p; ++qp) {
+    for (int qp = 0; qp < q; ++qp) {
       for(int ivec = 0; ivec < i; ++ivec){
         for(int rbf = 0; rbf < r; ++rbf) {
           double tmp1 = (double)std::rand();
-          rightInput[cl * p * i * r + rbf * p * i + qp * i + ivec] = tmp2;
-          h_inputRight(cl,qp, ivec, rbf) = tmp2;
+          rightInput[cl * q * i * r + rbf * q * i + qp * i + ivec] = tmp1;
+          h_inputRight(cl,qp, ivec, rbf) = tmp1;
         }
 
         for(int lbf = 0; lbf < l; ++lbf) {
           double tmp2 = (double)std::rand();
-          leftInput[cl * p * i * l + lbf * p * i + qp * i + ivec] = tmp2;
+          leftInput[cl * q * i * l + lbf * q * i + qp * i + ivec] = tmp2;
           h_inputLeft(cl, qp, ivec, lbf) = tmp2;
         }
       }
@@ -152,7 +153,7 @@ int main(int argc, char* argv[]) {
   for (int cl=0; cl < c; cl++) {
     for(int rbf =0; rbf < r; rbf++) {
       for(int lbf = 0; lbf<l; lbf++) {
-        serialOutput[cl * rbf * lbf] = 0;
+        serialOutput[cl * r * l + lbf*r + rbf] = 0;
         h_output(cl, lbf, rbf) = 0;
       }
     }
@@ -174,17 +175,17 @@ int main(int argc, char* argv[]) {
   Kokkos::deep_copy(d_output, h_output);
 
 
-  ContractDataDataTensorFunctor<Kokkos::Cuda, dev_input_t, dev_input_t, dev_output_t>
-  kokkosFunctor(d_inputLeft, d_inputRight, d_output, c,q, l, r,i);
+  ContractFieldFieldVectorFunctor<Kokkos::Cuda, dev_input_t, dev_input_t, dev_output_t>
+  kokkosFunctor(d_inputLeft, d_inputRight, d_output, c, l, r, q, i);
 
   for (int i = 0; i < repeats; i++) {
-    Kokkos::parallel_for(c, kokkosFunctor);
+    Kokkos::parallel_for(c*l*r, kokkosFunctor);
     Kokkos::fence();
   }
 
   clock_gettime(CLOCK_MONOTONIC, &tic);
   for (int i = 0; i < repeats; i++) {
-    Kokkos::parallel_for(c, kokkosFunctor);
+    Kokkos::parallel_for(c*l*r, kokkosFunctor);
     Kokkos::fence();
   }
   clock_gettime(CLOCK_MONOTONIC, &toc);
@@ -193,11 +194,16 @@ int main(int argc, char* argv[]) {
   Kokkos::deep_copy(h_output, d_output);
 
   for (int cl=0; cl < c; cl++) {
-    double err = serialOutput[cl] / h_output(cl);
-    if ((abs(err) - 1) > 1.0e-6) {
-      std::cerr << "output mismatch at" << cl << std::endl;
-      std::cerr << "err: " << err << std::endl;
-    }
+    for(int lbf = 0; lbf < l; lbf++){
+      for(int rbf = 0; rbf < r; rbf++){
+
+      double err = serialOutput[cl*l*r + lbf*r + rbf] / h_output(cl, lbf,rbf);
+      if ((abs(err) - 1) > 1.0e-6) {
+        std::cerr << "output mismatch at" << cl*l*r+lbf*r+rbf << std::endl;
+        std::cerr << "Serial is" << serialOutput[cl*l*r + lbf*r + rbf] << "kokkos is" << h_output(cl,lbf,rbf) << std::endl;
+      }
+      }
+  }
   }
   std::cout << "kokkos cuda time: " << elapsedTime_kokkosCuda << std::endl;
   std::cout << "kokkos cuda speedup: " << elapsedTime_serial/elapsedTime_kokkosCuda << std::endl;
