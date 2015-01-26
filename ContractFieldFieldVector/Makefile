@@ -74,11 +74,11 @@ CC_FLAGS        += -std=c++11 -fopenmp
 NVCC_FLAGS      += -std=c++11
 NVCC_LD_FLAGS   += -lgomp
 
-TARGETS = ArrayOfDotProducts
+TARGETS = ContractFieldFieldVector
 
 all: $(TARGETS)
 
-ArrayOfDotProducts: ArrayOfDotProducts.cu
+ContractFieldFieldVector: ContractFieldFieldVector.cu
 	$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O3
 	#$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O0,-g
 
