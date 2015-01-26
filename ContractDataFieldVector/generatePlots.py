@@ -12,7 +12,7 @@ import csv
 from mpl_toolkits.mplot3d import Axes3D
 from numpy import log10
 
-prefix = 'data/ArrayOfDotProducts_'
+prefix = 'data/ContractDataDataVector_'
 suffix = '_clearCache_shadowfax'
 outputPrefix = 'figures/'
 
@@ -23,9 +23,9 @@ memorySize = numpy.loadtxt(open(prefix + 'memorySize' + suffix + '.csv','rb'),de
 numberOfDotProducts = numpy.loadtxt(open(prefix + 'numberOfDotProducts' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 serialTimes = numpy.loadtxt(open(prefix + 'serialTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 ompTimes = numpy.loadtxt(open(prefix + 'ompTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-cudaIndependentTimes = numpy.loadtxt(open(prefix + 'cudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#cudaIndependentTimes = numpy.loadtxt(open(prefix + 'cudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 
@@ -40,13 +40,13 @@ allNames.append('serial')
 allTimes.append(ompTimes)
 allNames.append('omp')
 # NOTE: if you are doing comparisons against cuda time, it's assumed that the third entry in allTimes is cuda.  if you aren't doing those comparisons, you should go disable that portion of this script.
-allTimes.append(cudaIndependentTimes)
-allNames.append('cudaIndependent')
+#allTimes.append(cudaIndependentTimes)
+#allNames.append('cudaIndependent')
 # there are no assumptions about the rest of the ordering
-allTimes.append(cudaReductionTimes)
-allNames.append('cudaReduction')
-allTimes.append(cudaSwitchingTimes)
-allNames.append('cudaSwitching')
+#allTimes.append(cudaReductionTimes)
+#allNames.append('cudaReduction')
+#allTimes.append(cudaSwitchingTimes)
+#allNames.append('cudaSwitching')
 allTimes.append(kokkosOmpTimes)
 allNames.append('kokkosOmp')
 allTimes.append(kokkosCudaIndependentTimes)
@@ -310,6 +310,7 @@ for memorySizeIndex in [-1, 0]:
 
 # relative speedup over cudaIndependent
 # TODO: you might disable this part
+""" disabled: no raw cuda
 maxSpeedup = -10
 minSpeedup = 10
 for timesIndex in numpy.arange(3, len(allTimes)):
@@ -367,7 +368,7 @@ for memorySizeIndex in [-1, 0]:
     print 'saved file to %s' % filename
   else:
     plt.show()
-
+"""
 
 # these graphs are essentially duplicates of ones made already, but with a linear scale instead of logarithmic (by request of carter).
 # these graphs just compare kokkos omp versus openmp and kokkos cuda versus cuda
@@ -397,6 +398,7 @@ else:
   plt.show()
 
 # cuda
+""" Disabled while no raw cuda
 fig3d = plt.figure(0)
 plt.clf()
 ax = fig3d.gca(projection='3d')
@@ -419,3 +421,7 @@ if (makeImageFiles == True):
       print 'saved file to %s' % filename
 else:
   plt.show()
+"""
+
+#EOF
+
