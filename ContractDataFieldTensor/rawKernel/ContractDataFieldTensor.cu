@@ -202,7 +202,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "output mismatch at" << cl*l*r+lbf*r+rbf << std::endl;
         std::cerr << "Serial is" << serialOutput[cl*l*r + lbf*r + rbf] << "kokkos is" << h_output(cl,lbf,rbf) << std::endl;
       }
-      }
+    }
   }
   }
   std::cout << "kokkos cuda time: " << elapsedTime_kokkosCuda << std::endl;

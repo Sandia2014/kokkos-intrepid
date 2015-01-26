@@ -89,17 +89,18 @@ struct ContractFieldFieldVectorFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
 
-    int matrixIndex = elementIndex / (_numRightFields*_numLeftFields);
-    int rbf = matrixIndex % _numRightFields;
-    int lbf = matrixIndex / _numRightFields;
-
-    double tmpVal = 0;
-    for (int qp = 0; qp < _numPoints; qp++) {
-      for (int iVec = 0; iVec < _dimVec; iVec++) {
-        tmpVal += _leftInput(matrixIndex, qp, iVec, lbf)*_rightInput(matrixIndex, qp, iVec, rbf);
-      } //D-loop
-    } // P-loop
-    _output(matrixIndex, lbf, rbf) = tmpVal;
+    for (int lbf = 0; lbf < _numLeftFields; lbf++) {
+      for (int rbf = 0; rbf < _numRightFields; rbf++) {
+        double tmpVal = 0;
+        for (int qp = 0; qp < _numPoints; qp++) {
+          for (int iVec = 0; iVec < _dimVec; iVec++) {
+            tmpVal += _leftInput(elementIndex, lbf, qp, iVec)*
+                      _rightInput(elementIndex,rbf,qp, iVec);
+          } //D-loop
+        } // P-loop
+        _output(elementIndex, lbf, rbf) = tmpVal;
+      } // R-loop
+    } // L-loop
   }
 };
 
@@ -123,8 +124,8 @@ int main(int argc, char* argv[]) {
   typedef typename dev_input_t::HostMirror host_input_t;
   typedef typename dev_output_t::HostMirror host_output_t;
 
-  dev_input_t d_inputLeft("left", c, q, i, l);
-  dev_input_t d_inputRight("right", c, q, i, r);
+  dev_input_t d_inputLeft("left", c, l, q, i);
+  dev_input_t d_inputRight("right", c, r, q, i);
   dev_output_t d_output("out", c, l, r);
 
   host_input_t h_inputLeft = Kokkos::create_mirror_view(d_inputLeft);
@@ -138,13 +139,13 @@ int main(int argc, char* argv[]) {
         for(int rbf = 0; rbf < r; ++rbf) {
           double tmp1 = (double)std::rand();
           rightInput[cl * q * i * r + rbf * q * i + qp * i + ivec] = tmp1;
-          h_inputRight(cl,qp, ivec, rbf) = tmp1;
+          h_inputRight(cl, rbf, qp, ivec) = tmp1;
         }
 
         for(int lbf = 0; lbf < l; ++lbf) {
           double tmp2 = (double)std::rand();
           leftInput[cl * q * i * l + lbf * q * i + qp * i + ivec] = tmp2;
-          h_inputLeft(cl, qp, ivec, lbf) = tmp2;
+          h_inputLeft(cl, lbf, qp, ivec) = tmp2;
         }
       }
     }
@@ -179,13 +180,13 @@ int main(int argc, char* argv[]) {
   kokkosFunctor(d_inputLeft, d_inputRight, d_output, c, l, r, q, i);
 
   for (int i = 0; i < repeats; i++) {
-    Kokkos::parallel_for(c*l*r, kokkosFunctor);
+    Kokkos::parallel_for(c, kokkosFunctor);
     Kokkos::fence();
   }
 
   clock_gettime(CLOCK_MONOTONIC, &tic);
   for (int i = 0; i < repeats; i++) {
-    Kokkos::parallel_for(c*l*r, kokkosFunctor);
+    Kokkos::parallel_for(c, kokkosFunctor);
     Kokkos::fence();
   }
   clock_gettime(CLOCK_MONOTONIC, &toc);
