@@ -118,8 +118,8 @@ int main(int argc, char* argv[]) {
   double* rightInput = new double[c * r * q * i];
   double* serialOutput = new double[c * l * r];
 
-  typedef Kokkos::View<double ****, Kokkos::LayoutLeft, Kokkos::Cuda> dev_input_t;
-  typedef Kokkos::View<double ***, Kokkos::LayoutLeft, Kokkos::Cuda> dev_output_t;
+  typedef Kokkos::View<double ****, Kokkos::LayoutRight, Kokkos::Cuda> dev_input_t;
+  typedef Kokkos::View<double ***, Kokkos::LayoutRight, Kokkos::Cuda> dev_output_t;
   typedef typename dev_input_t::HostMirror host_input_t;
   typedef typename dev_output_t::HostMirror host_output_t;
 
