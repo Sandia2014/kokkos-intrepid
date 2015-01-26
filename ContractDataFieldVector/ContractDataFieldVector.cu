@@ -442,6 +442,7 @@ struct KokkosFunctor_Independent {
 
   typedef DeviceType device_type;
 
+  const unsigned int _numCells;
   const unsigned int _numPoints;
   const unsigned int _dimVec;
   KokkosDataA _data_A;
@@ -451,8 +452,8 @@ struct KokkosFunctor_Independent {
   KokkosFunctor_Independent(const unsigned int numCells,
                             const unsigned int numPoints,
                             const unsigned int dimVec,
-                            KokkosDotProductData data_A,
-                            KokkosDotProductData data_B,
+                            KokkosDataA data_A,
+                            KokkosDataB data_B,
                             KokkosDotProductResults results) :
     _numCells(numCells),
     _numPoints(numPoints), 
@@ -512,12 +513,12 @@ runKokkosTest(const unsigned int numberOfRepeats,
 
   KokkosDataA dev_kokkosDotProductData_A("kokkos data A",
                                          numCells, numFields, numPoints, dimVec);
-  KokkosDotProductData_Host kokkosDotProductData_A =
+  KokkosDataA_Host kokkosDotProductData_A =
     Kokkos::create_mirror_view(dev_kokkosDotProductData_A);
 
   KokkosDataB dev_kokkosDotProductData_B("kokkos data B",
                                          numCells, numPoints, dimVec);
-  KokkosDotProductData_Host kokkosDotProductData_B =
+  KokkosDataB_Host kokkosDotProductData_B =
     Kokkos::create_mirror_view(dev_kokkosDotProductData_B);
 
   KokkosDotProductResults dev_kokkosDotProductResults("kokkos dot product results",
@@ -572,7 +573,8 @@ runKokkosTest(const unsigned int numberOfRepeats,
 
   // breaking formatting convention because holy freak that's long
   KokkosFunctor_Independent<DeviceType,
-                            KokkosDotProductData,
+                            KokkosDataA,
+                            KokkosDataB,
                             KokkosDotProductResults>
     kokkosFunctor_Independent(numCells,
                               numPoints,
@@ -616,11 +618,14 @@ runKokkosTest(const unsigned int numberOfRepeats,
   }
   // copy over the results from the device to the host
   Kokkos::deep_copy(kokkosDotProductResults, dev_kokkosDotProductResults);
-  for (unsigned int dotProductIndex = 0;
-       dotProductIndex < numCells; ++dotProductIndex) {
-    dotProductResults->at(dotProductIndex) =
-      kokkosDotProductResults(dotProductIndex);
+  for (unsigned int cl = 0; cl < numCells; ++cl) {
+    const unsigned int clInd = cl * numFields;
+    for (unsigned int lbf = 0; lbf < numFields; ++lbf) {
+        dotProductResults->at(clInd + lbf) =
+          kokkosDotProductResults(cl, lbf);
+      }
   }
+  
   // check the results
   checkAnswer(correctResults, *dotProductResults,
               numPoints * dimVec, memorySize,
@@ -673,6 +678,7 @@ int main(int argc, char* argv[]) {
 
   // create the actual sizes
   vector<unsigned int> memorySizes(numberOfMemorySizes);
+  const unsigned int numFields = 8;
   for (unsigned int memorySizeIndex = 0;
        memorySizeIndex < numberOfMemorySizes; ++memorySizeIndex) {
     const float percent = memorySizeIndex / float(numberOfMemorySizes - 1);
@@ -685,7 +691,6 @@ int main(int argc, char* argv[]) {
     const unsigned int desiredMemorySizeInBytes = pow(10., thisLog);
     // now, in this amount of memory i have to fit two vectors of data
     // that are multiples of the max dot product size, and it has to be divisible by numFields
-    const unsigned int numFields = 8;
     const unsigned int memorySizeInBytes =
       unsigned(desiredMemorySizeInBytes /
                float(4 * sizeof(float) * maxDotProductSize * numFields)) *
@@ -787,7 +792,7 @@ int main(int argc, char* argv[]) {
     vector<float> dotProductData_LayoutLeft_A(dotProductData_LayoutRight_A.size());
     vector<float> dotProductData_LayoutLeft_B(dotProductData_LayoutRight_B.size());
 #endif
-    for (unsigned int cl = 0; cl < numCells; ++cl) {
+    for (unsigned int cl = 0; cl < maxNumCells; ++cl) {
       for (unsigned int lbf = 0; lbf < numFields; ++lbf) {
         for (unsigned int entryIndex = 0;
              entryIndex < dotProductSize; ++entryIndex) {
@@ -811,7 +816,7 @@ int main(int argc, char* argv[]) {
     }
   }
     // Results will be layout right
-    vector<float> dotProductResults(numCells * numFields,
+    vector<float> dotProductResults(maxNumCells * numFields,
                                     std::numeric_limits<float>::quiet_NaN());
 
 #ifdef RAW_CUDA
@@ -892,7 +897,7 @@ int main(int argc, char* argv[]) {
               int lbfDim = lbf * numPoints * dimVec;
               float tmpVal = 0;
               for (int qp = 0; qp < numPoints; qp++) {
-                int qpDim = qp * dimVec
+                int qpDim = qp * dimVec;
                 for (int iVec = 0; iVec < dimVec; iVec++) {
                   tmpVal +=
                     dotProductData_LayoutRight_A[clDimLeft + lbfDim + qpDim + iVec] *
@@ -955,7 +960,7 @@ int main(int argc, char* argv[]) {
               int lbfDim = lbf * numPoints * dimVec;
               float tmpVal = 0;
               for (int qp = 0; qp < numPoints; qp++) {
-                int qpDim = qp * dimVec
+                int qpDim = qp * dimVec;
                 for (int iVec = 0; iVec < dimVec; iVec++) {
                   tmpVal +=
                     dotProductData_LayoutRight_A[clDimLeft + lbfDim + qpDim + iVec] *
@@ -1131,7 +1136,7 @@ int main(int argc, char* argv[]) {
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
         kokkosCudaIndependentTimesMatrix[dotProductSizeIndex][memorySizeIndex] =
-          runKokkosTest<DeviceType, KokkosDataA
+          runKokkosTest<DeviceType, KokkosDataA, 
                                  KokkosDataB>(numberOfRepeats,
                                               memorySize,
                                               numCells,
