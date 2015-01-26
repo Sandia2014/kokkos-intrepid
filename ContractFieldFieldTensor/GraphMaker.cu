@@ -1298,7 +1298,7 @@ int main(int argc, char* argv[]) {
     checkCudaError(cudaFree(dev_tensorData_LayoutRight_A));
     checkCudaError(cudaFree(dev_tensorData_LayoutRight_B));
     checkCudaError(cudaFree(dev_tensorResults));
-
+  
   }
   writeTimesMatrixToFile(tensorSizeMatrix,
                          prefix + string("tensorSize") + suffix);
