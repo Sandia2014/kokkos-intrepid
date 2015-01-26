@@ -1,7 +1,7 @@
 // -*- C++ -*-
-// ArrayOfDotProducts.cc
-// a huge comparison of different ways of doing an array of dot products
-// Jeff Amelang, 2014
+// ContractDataFieldVector.cu
+// a huge comparison of different ways of doing ContractDataFieldVector
+// Tyler Marklyn (outline stolen from Jeff Amelang), 2015
 
 // c junk
 #include <cstdio>
@@ -86,7 +86,7 @@ getElapsedTime(const timespec & start, const timespec & end) {
 
 
 
-
+#ifdef RAW_CUDA
 __global__
 void
 doCudaClearCache_kernel(const unsigned int junkDataSize,
@@ -184,6 +184,7 @@ doCudaDotProducts_Reduction_kernel(const unsigned int numberOfDotProducts,
     dotProductIndex += gridDim.x;
   }
 }
+#endif // RAW_CUDA
 
 void
 writeTimesMatrixToFile(const vector<vector<float> > & times,
@@ -236,6 +237,7 @@ checkAnswer(const vector<float> & correctResults,
   }
 }
 
+#ifdef RAW_CUDA
 double
 runCudaTest(const CudaStyle cudaStyle,
             const unsigned int numberOfThreadsPerBlock,
@@ -405,8 +407,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   dotProductResults);
   }
 }
-
-
+#endif // RAW_CUDA
 
 
 
@@ -685,6 +686,8 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     ompTimesMatrix(numberOfDotProductSizes,
                    vector<float>(numberOfMemorySizes, 0));
+
+#ifdef RAW_CUDA
   vector<vector<float> >
     cudaIndependent_TimesMatrix(numberOfDotProductSizes,
                                 vector<float>(numberOfMemorySizes, 0));
@@ -694,6 +697,8 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     cudaSwitchingTimesMatrix(numberOfDotProductSizes,
                              vector<float>(numberOfMemorySizes, 0));
+#endif
+
 #ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfDotProductSizes,
@@ -710,6 +715,8 @@ int main(int argc, char* argv[]) {
   for (unsigned int i = 0; i < junkDataSize/100; ++i) {
     junkDataToClearTheCache[(rand() / float(RAND_MAX))*junkDataSize] = 1;
   }
+
+#ifdef RAW_CUDA
   int * dev_junkDataToClearTheCache;
   checkCudaError(cudaMalloc((void **) &dev_junkDataToClearTheCache,
                             junkDataSize * sizeof(int)));
@@ -727,6 +734,7 @@ int main(int argc, char* argv[]) {
                               sizeof(int),
                               cudaMemcpyHostToDevice));
   }
+#endif // RAW_CUDA
 
   unsigned int totalNumberOfRepeats = 0;
 
@@ -767,7 +775,7 @@ int main(int argc, char* argv[]) {
     vector<float> dotProductResults(maxNumberOfDotProducts,
                                     std::numeric_limits<float>::quiet_NaN());
 
-
+#ifdef RAW_CUDA
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
     float * dev_dotProductData_LayoutRight_A;
@@ -805,6 +813,7 @@ int main(int argc, char* argv[]) {
                               &dotProductData_LayoutLeft_B[0],
                               maxNumberOfDotProducts * dotProductSize * sizeof(float),
                               cudaMemcpyHostToDevice));
+#endif // RAW_CUDA
 
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
@@ -948,7 +957,7 @@ int main(int argc, char* argv[]) {
       checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults[0],
                                 maxNumberOfDotProducts * sizeof(float),
                                 cudaMemcpyHostToDevice));
-
+#ifdef RAW_CUDA
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1031,6 +1040,7 @@ int main(int argc, char* argv[]) {
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda reductions> ***********************
       // ===============================================================
+#endif // RAW_CUDA
 
 #ifdef ENABLE_KOKKOS
       // ===============================================================
@@ -1101,11 +1111,13 @@ int main(int argc, char* argv[]) {
            "in %7.2f seconds\n", numberOfRepeats,
            dotProductSize, thisSizesElapsedTime);
 
+#ifdef RAW_CUDA
     checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_A));
     checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_B));
     checkCudaError(cudaFree(dev_dotProductData_LayoutRight_A));
     checkCudaError(cudaFree(dev_dotProductData_LayoutRight_B));
     checkCudaError(cudaFree(dev_dotProductResults));
+#endif
 
   }
   writeTimesMatrixToFile(dotProductSizeMatrix,
@@ -1118,12 +1130,17 @@ int main(int argc, char* argv[]) {
                          prefix + string("serialTimes") + suffix);
   writeTimesMatrixToFile(ompTimesMatrix,
                          prefix + string("ompTimes") + suffix);
+
+
+#ifdef RAW_CUDA
   writeTimesMatrixToFile(cudaIndependent_TimesMatrix,
                          prefix + string("cudaIndependentTimes") + suffix);
   writeTimesMatrixToFile(cudaReduction_TimesMatrix,
                          prefix + string("cudaReductionTimes") + suffix);
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
+#endif
+
 #ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
                          prefix + string("kokkosOmpTimes") + suffix);
@@ -1131,10 +1148,13 @@ int main(int argc, char* argv[]) {
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
 #endif
 
-#ifdef ENABLE_KOKKOS
+#if defined RAW_CUDA
+  // Note, we assume that if RAW_CUDA is defined so is ENABLE_KOKKOS here
   const unsigned int numberOfMethods = 7;
+#elif defined ENABLE_KOKKOS
+  const unsigned int numberOfMethods = 4;
 #else
-  const unsigned int numberOfMethods = 5;
+  const unsigned int numberOfMethods = 2;
 #endif
 
   const size_t junkDataSum =
