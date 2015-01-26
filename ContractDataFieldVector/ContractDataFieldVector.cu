@@ -625,7 +625,9 @@ int main(int argc, char* argv[]) {
     {{8, 16, 32, 64, 128, 256, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
+#ifdef RAW_CUDA
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
+#endif
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -954,10 +956,12 @@ int main(int argc, char* argv[]) {
       std::fill(dotProductResults.begin(),
                 dotProductResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
+
+#ifdef RAW_CUDA
       checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults[0],
                                 maxNumberOfDotProducts * sizeof(float),
                                 cudaMemcpyHostToDevice));
-#ifdef RAW_CUDA
+
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1162,10 +1166,12 @@ int main(int argc, char* argv[]) {
                     junkDataToClearTheCache.end(), size_t(0));
   {
     int temp = 0;
+#ifdef RAW_CUDA
     checkCudaError(cudaMemcpy(&temp,
                               dev_junkDataCounter,
                               sizeof(int),
                               cudaMemcpyDeviceToHost));
+#endif
     junkDataCounter += temp;
   }
   if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
