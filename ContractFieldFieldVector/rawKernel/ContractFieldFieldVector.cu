@@ -35,46 +35,51 @@ double getElapsedTime(const timespec start, const timespec end) {
   return double(temp.tv_sec) + double(temp.tv_nsec) / 1e9;
 }
 
-
 void serial(double* leftInput, double* rightInput, double* output,
-int c, int p, int t1, int t2) {
+int c, int p, int l, int r, int q, int i) {
 
-  for (int cl=0; cl < c; cl++) {
-    double tmp = 0;
-    for (int qp=0; qp < p; qp++) {
-      for (int iTens1=0; iTens1 < t1; iTens1++) {
-        for (int iTens2=0; iTens2 < t2; iTens2++) {
-          tmp += leftInput[cl * p * t1 * t2 + qp * t1 * t2 + iTens1 * t2 + iTens2] *
-          rightInput[cl * p * t1 * t2 + qp * t1 * t2 + iTens1 * t2 + iTens2];
-        }
-      }
-    }
-    output[cl] = tmp;
-  }
+  for (int cl = 0; cl < c; cl++) {
+    for (int lbf = 0; lbf < l; lbf++) {
+      for (int rbf = 0; rbf < r; rbf++) {
+        double tmpVal = 0;
+        for (int qp = 0; qp < q; qp++) {
+          for (int iVec = 0; iVec < i; iVec++) {
+            tmpVal += leftFields(cl, lbf, qp, iVec)*rightFields(cl, rbf, qp, iVec);
+          } //D-loop
+        } // P-loop
+        outputFields[cl * lbf * rbf] = tmpVal;
+      } // R-loop
+    } // L-loop
+  } // C-loop
 }
 
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
-struct ContractDataDataTensorFunctor {
+struct ContractFieldFieldVectorFunctor {
   typedef DeviceType device_type;
   LeftViewType _leftInput;
   RightViewType _rightInput;
   OutputViewType _output;
+  int _numCells;
   int _numPoints;
-  int _dim1;
-  int _dim2;
+  int _numLeftFields;
+  int _numRightFields;
+  int _dimVec;
 
-  ContractDataDataTensorFunctor(LeftViewType leftInput,
+  ContractFieldFieldVectorFunctor(LeftViewType leftInput,
   RightViewType rightInput,
   OutputViewType output,
   int numPoints,
-  int dim1,
-  int dim2) :
+  int dimVec,
+  int numLeftFields,
+  int numRightFields) :
   _leftInput(leftInput),
   _rightInput(rightInput),
   _output(output),
+  _numCells(numCells),
   _numPoints(numPoints),
-  _dim1(dim1),
-  _dim2(dim2)
+  _numLeftFields(numLeftFields),
+  _numRightFields(numRightFields),
+  _dimVec(dimVec)
   {
     // Nothing to do
   }
@@ -83,23 +88,24 @@ struct ContractDataDataTensorFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
 
-    double tmp = 0;
-    for (int qp=0; qp < _numPoints; qp++) {
-      for (int iTens1=0; iTens1 < _dim1; iTens1++) {
-        for (int iTens2=0; iTens2 < _dim2; iTens2++) {
-          tmp += _leftInput(elementIndex, qp, iTens1, iTens2) *
-          _rightInput(elementIndex, qp, iTens1, iTens2);
-        }
-      }
-    }
-    _output(elementIndex) = tmp;
+    int matrixIndex = elementIndex % _numCells;
+    int rbf = matrixIndex % _numRightFields;
+    int lbf = matrixIndex % _numLeftFields;
+
+    double tmpVal = 0;
+    for (int qp = 0; qp < numPoints; qp++) {
+      for (int iVec = 0; iVec < dimVec; iVec++) {
+        tmpVal += leftFields(cl, qp, iVec, lbf)*rightFields(cl, qp, iVec, rbf);
+      } //D-loop
+    } // P-loop
+    outputFields(cl, lbf, rbf) = tmpVal;
   }
 };
 
 
 
 int main(int argc, char* argv[]) {
-  const int c=100000, p=10, t1=10, t2=10;
+  int c=10000, l=10, r=10, q = 10, i = 10;
   const int repeats = 10;
 
   timespec tic;
@@ -107,48 +113,55 @@ int main(int argc, char* argv[]) {
 
   Kokkos::initialize();
 
-  double* leftInput = new double[c * p * t1 * t2];
-  double* rightInput = new double[c * p * t1 * t2];
-  double* serialOutput = new double[c];
+  double* leftInput = new double[c * l * q * i];
+  double* rightInput = new double[c * r * q * i];
+  double* serialOutput = new double[c * l * r];
 
   typedef Kokkos::View<double ****, Kokkos::LayoutLeft, Kokkos::Cuda> dev_input_t;
-  typedef Kokkos::View<double *, Kokkos::LayoutLeft, Kokkos::Cuda> dev_output_t;
+  typedef Kokkos::View<double ***, Kokkos::LayoutLeft, Kokkos::Cuda> dev_output_t;
   typedef typename dev_input_t::HostMirror host_input_t;
   typedef typename dev_output_t::HostMirror host_output_t;
 
-  dev_input_t d_inputLeft("left", c, p, t1, t2);
-  dev_input_t d_inputRight("right", c, p, t1, t2);
-  dev_output_t d_output("out", c);
+  dev_input_t d_inputLeft("left", c, q, i, l);
+  dev_input_t d_inputRight("right", c, q, i, r);
+  dev_output_t d_output("out", c, l, r);
 
   host_input_t h_inputLeft = Kokkos::create_mirror_view(d_inputLeft);
   host_input_t h_inputRight = Kokkos::create_mirror_view(d_inputRight);
   host_output_t h_output = Kokkos::create_mirror_view(d_output);
 
 
-  for (int cl=0; cl < c; cl++) {
-    for (int qp=0; qp < p; qp++) {
-      for (int iTens1=0; iTens1 < t1; iTens1++) {
-        for (int iTens2=0; iTens2 < t2; iTens2++) {
+  for (int cl = 0; cl < c; ++cl) {
+    for (int qp = 0; qp < p; ++qp) {
+      for(int ivec = 0; ivec < i; ++ivec){
+        for(int rbf = 0; rbf < r; ++rbf) {
           double tmp1 = (double)std::rand();
+          rightInput[cl * p * i * r + rbf * p * i + qp * i + ivec] = tmp2;
+          h_inputRight(cl,qp, ivec, rbf) = tmp2;
+        }
+
+        for(int lbf = 0; lbf < l; ++lbf) {
           double tmp2 = (double)std::rand();
-          leftInput[cl * p * t1 * t2 + qp * t1 * t2 + iTens1 * t2 + iTens2] = tmp1;
-          rightInput[cl * p * t1 * t2 + qp * t1 * t2 + iTens1 * t2 + iTens2] = tmp2;
-          h_inputLeft(cl, qp, iTens1, iTens2) = tmp1;
-          h_inputRight(cl, qp, iTens1, iTens2) = tmp2;
+          leftInput[cl * p * i * l + lbf * p * i + qp * i + ivec] = tmp2;
+          h_inputLeft(cl, qp, ivec, lbf) = tmp2;
         }
       }
     }
   }
 
   for (int cl=0; cl < c; cl++) {
-    serialOutput[cl] = 0;
-    h_output(cl) = 0;
+    for(int rbf =0; rbf < r; rbf++) {
+      for(int lbf = 0; lbf<l; lbf++) {
+        serialOutput[cl * rbf * lbf] = 0;
+        h_output(cl, lbf, rbf) = 0;
+      }
+    }
   }
 
 
   clock_gettime(CLOCK_MONOTONIC, &tic);
   for (int i = 0; i < repeats; i++) {
-    serial(leftInput, rightInput, serialOutput, c, p, t1, t2);
+    serial(leftInput, rightInput, serialOutput, c, l, r,q,i);
   }
   clock_gettime(CLOCK_MONOTONIC, &toc);
   const double elapsedTime_serial = getElapsedTime(tic, toc);
@@ -162,7 +175,7 @@ int main(int argc, char* argv[]) {
 
 
   ContractDataDataTensorFunctor<Kokkos::Cuda, dev_input_t, dev_input_t, dev_output_t>
-  kokkosFunctor(d_inputLeft, d_inputRight, d_output, p, t1, t2);
+  kokkosFunctor(d_inputLeft, d_inputRight, d_output, c,q, l, r,i);
 
   for (int i = 0; i < repeats; i++) {
     Kokkos::parallel_for(c, kokkosFunctor);
