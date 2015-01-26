@@ -809,7 +809,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{2000, 4000, 40000}};
+    {{1000, 4000, 40000}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1026,12 +1026,12 @@ int main(int argc, char* argv[]) {
               clearCacheStyle == ClearCacheAfterEveryRepeat) {
             tic = getTimePoint();
           }
-
+printf("start serial\n");
           // do the actual calculation
           contractFieldFieldTensorSerial(tensorResults,
 	  tensorData_LayoutRight_B, tensorData_LayoutRight_A, false,
-	  numberOfTensors, (tensorSize/2000), (tensorSize/2000), 10, 10, 10);
-
+	  numberOfTensors, (tensorSize/1000), (tensorSize/1000), 10, 10, 10);
+printf("done serial\n");
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
@@ -1051,8 +1051,7 @@ int main(int argc, char* argv[]) {
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ********************** </do serial> ***************************
       // ===============================================================
-
-
+printf("Done serial, tensorSizeIndex: %d\n", tensorSizeIndex);
       const vector<float> correctResults = tensorResults;
       // scrub the results
       std::fill(tensorResults.begin(),
@@ -1221,14 +1220,14 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
+printf("start Kok\n");
       {
         typedef Kokkos::OpenMP                             DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutRight,
                              DeviceType>                   KokkosData;
 
-	const unsigned int numLeftFields = (tensorSize/1000) /2;
-	const unsigned int numRightFields = (tensorSize/1000) /2;
+	const unsigned int numLeftFields = (tensorSize/1000);
+	const unsigned int numRightFields = (tensorSize/1000);
         kokkosOmpTimesMatrix[tensorSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
                         KokkosData>(numberOfTensors,
@@ -1250,8 +1249,8 @@ int main(int argc, char* argv[]) {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosData;
-	const unsigned int numLeftFields = (tensorSize/1000) /2;
-	const unsigned int numRightFields = (tensorSize/1000) /2;
+	const unsigned int numLeftFields = (tensorSize/1000);
+	const unsigned int numRightFields = (tensorSize/1000);
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
         kokkosCudaIndependentTimesMatrix[tensorSizeIndex][memorySizeIndex] =
@@ -1271,7 +1270,7 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &tensorResults);
       }
-
+printf("Done with Kokkos, tensorSizeIndex: %d\n", tensorSizeIndex);
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
