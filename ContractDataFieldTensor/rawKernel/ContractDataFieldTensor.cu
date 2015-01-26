@@ -49,7 +49,7 @@ int c, int l, int q, int d1, int d2) {
           } // D2-loop
         } // D1-loop
       } // P-loop
-      outputFields[cl*l+ lbf] = tmpVal;
+      output[cl*l+ lbf] = tmpVal;
     } // F-loop
   } // C-loop
 }
@@ -101,6 +101,7 @@ struct ContractFieldFieldVectorFunctor {
       } // P-loop
       _output(elementIndex, lbf) = tmpVal;
     } // F-loop
+    }
 };
 
 
@@ -120,7 +121,7 @@ int main(int argc, char* argv[]) {
 
   typedef Kokkos::View<double *****, Kokkos::LayoutLeft, Kokkos::Cuda> dev_input_t_left;
   typedef Kokkos::View<double ****, Kokkos::LayoutLeft, Kokkos::Cuda> dev_input_t_right;
-  typedef Kokkos::View<double ***, Kokkos::LayoutLeft, Kokkos::Cuda> dev_output_t;
+  typedef Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::Cuda> dev_output_t;
   typedef typename dev_input_t_left::HostMirror host_input_t_left;
   typedef typename dev_input_t_right::HostMirror host_input_t_right;
   typedef typename dev_output_t::HostMirror host_output_t;
@@ -129,8 +130,8 @@ int main(int argc, char* argv[]) {
   dev_input_t_right d_inputRight("right", c, q, d1, d2);
   dev_output_t d_output("out", c, l);
 
-  host_input_t h_inputLeft = Kokkos::create_mirror_view(d_inputLeft);
-  host_input_t h_inputRight = Kokkos::create_mirror_view(d_inputRight);
+  host_input_t_left h_inputLeft = Kokkos::create_mirror_view(d_inputLeft);
+  host_input_t_right h_inputRight = Kokkos::create_mirror_view(d_inputRight);
   host_output_t h_output = Kokkos::create_mirror_view(d_output);
 
 
@@ -156,7 +157,6 @@ int main(int argc, char* argv[]) {
       for(int lbf = 0; lbf<l; lbf++) {
         serialOutput[cl * l + lbf] = 0;
         h_output(cl, lbf) = 0;
-      }
     }
   }
 
@@ -195,19 +195,18 @@ int main(int argc, char* argv[]) {
 
   for (int cl=0; cl < c; cl++) {
     for(int lbf = 0; lbf < l; lbf++){
-      for(int rbf = 0; rbf < r; rbf++){
 
-      double err = serialOutput[cl*l*r + lbf*r + rbf] / h_output(cl, lbf,rbf);
+      double err = serialOutput[cl*l + lbf] / h_output(cl, lbf);
       if ((abs(err) - 1) > 1.0e-6) {
-        std::cerr << "output mismatch at" << cl*l*r+lbf*r+rbf << std::endl;
-        std::cerr << "Serial is" << serialOutput[cl*l*r + lbf*r + rbf] << "kokkos is" << h_output(cl,lbf,rbf) << std::endl;
+
+        std::cerr << "output mismatch at" << cl*l+lbf << std::endl;
+        std::cerr << "Serial is" << serialOutput[cl*l + lbf] << "kokkos is" << h_output(cl,lbf) << std::endl;
       }
     }
-  }
   }
   std::cout << "kokkos cuda time: " << elapsedTime_kokkosCuda << std::endl;
   std::cout << "kokkos cuda speedup: " << elapsedTime_serial/elapsedTime_kokkosCuda << std::endl;
 
   Kokkos::finalize();
-
+  return 0;
 }
