@@ -494,7 +494,7 @@ struct contractFieldFieldTensorFunctor {
     _numLeftFields(numLeftFields), _numRightFields(numRightFields),
     _dim1Tens(dim1Tens), _dim2Tens(dim2Tens)
     {
-
+    
     }
 
     // This function expects the views to be in this order:
@@ -551,7 +551,7 @@ runKokkosTest(const unsigned int numCells,
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
   typedef typename InputViewType::HostMirror     Kokkos_input_Host;
-  typedef Kokkos::View<float***, DeviceType>              KokkosResults;
+  typedef Kokkos::View<float***, Kokkos::LayoutRight, DeviceType>              KokkosResults;
   typedef typename KokkosResults::HostMirror  KokkosResults_Host;
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
@@ -572,20 +572,20 @@ runKokkosTest(const unsigned int numCells,
 
   InputViewType dev_kokkosData_Right("kokkos data A",
                                                   numCells,
-						  numLeftFields,
 						  p,
 						  t1,
-						  t2);
+						  t2,
+						  numRightFields);
 
   Kokkos_input_Host kokkosData_Right =
     Kokkos::create_mirror_view(dev_kokkosData_Right);
 
   InputViewType dev_kokkosData_Left("kokkos data B",
                                                  numCells,
+						 numLeftFields,
                                                  p,
 						 t1,
-						 t2,
-						 numRightFields);
+						 t2);
 
   Kokkos_input_Host kokkosData_Left =
     Kokkos::create_mirror_view(dev_kokkosData_Left);
@@ -615,7 +615,6 @@ runKokkosTest(const unsigned int numCells,
                                      entryIndex];
     }
   } */
-
   for (int cl = 0; cl < numCells; ++cl) {
 	for (int qp = 0; qp < p; ++qp) {
 	    for (int iTens1 = 0; iTens1 < t1; ++iTens1) {
@@ -682,7 +681,6 @@ runKokkosTest(const unsigned int numCells,
 
     // wait for this repeat's results to finish
     Kokkos::fence();
-
     if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
       const timespec toc = getTimePoint();
       const float elapsedTime = getElapsedTime(tic, toc);
@@ -717,7 +715,6 @@ runKokkosTest(const unsigned int numCells,
   std::fill(results->begin(),
             results->end(),
             std::numeric_limits<float>::quiet_NaN());
-
   return totalElapsedTime;
 }
 
@@ -896,6 +893,7 @@ int main(int argc, char* argv[]) {
                                      vector<float>(numberOfMemorySizes, 0));
 #endif
 
+
   // create some junk data to use in clearing the cache
   size_t junkDataCounter = 0;
   const size_t junkDataSize = 1e7;
@@ -961,7 +959,7 @@ int main(int argc, char* argv[]) {
     vector<float> tensorResults(maxNumberOfTensors,
                                     std::numeric_limits<float>::quiet_NaN());
 
-    
+   
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
     float * dev_tensorData_LayoutRight_A;
@@ -1031,7 +1029,7 @@ int main(int argc, char* argv[]) {
 
           // do the actual calculation
           contractFieldFieldTensorSerial(tensorResults,
-	  tensorData_LayoutRight_A, tensorData_LayoutRight_B, false,
+	  tensorData_LayoutRight_B, tensorData_LayoutRight_A, false,
 	  numberOfTensors, (tensorSize/2000), (tensorSize/2000), 10, 10, 10);
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
@@ -1053,6 +1051,7 @@ int main(int argc, char* argv[]) {
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ********************** </do serial> ***************************
       // ===============================================================
+
 
       const vector<float> correctResults = tensorResults;
       // scrub the results
@@ -1237,7 +1236,7 @@ int main(int argc, char* argv[]) {
                                               numLeftFields,
 					      numRightFields,
                                               memorySize,
-                                              tensorData_LayoutRight_A,
+				              tensorData_LayoutRight_A,
                                               tensorData_LayoutRight_B,
                                               correctResults,
                                               string("Kokkos openmp"),

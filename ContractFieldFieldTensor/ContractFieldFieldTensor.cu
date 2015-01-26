@@ -417,12 +417,10 @@ int main(int argc, char* argv[]) {
 
     clock_gettime(CLOCK_MONOTONIC, &toc);
 
+
     // This can be used if you want to include copying times
     // Commented out so that the compiler doesn't give a warning
-    // Commented out so that the compiler doesn't give a warning
-    // Commented out so that the compiler doesn't give a warning
-    // Commented out so that the compiler doesn't give a warning
-    // double elapsedTime_kokkos_cuda_copy = getElapsedTime(tic, toc);
+    double elapsedTime_kokkos_cuda_copy = getElapsedTime(tic, toc);
 
 
     /*
@@ -459,6 +457,11 @@ int main(int argc, char* argv[]) {
     std::cout << "kokkos runtime of " << elapsedTime_kokkos_cuda_nocopy << std::endl;
     std::cout << "speed up of " <<
 	elapsedTime_serial/elapsedTime_kokkos_cuda_nocopy << std::endl;
+    
+    std::cout << "kokkos runtime including copy of " << elapsedTime_kokkos_cuda_copy << std::endl;
+    std::cout << "copy speed up of " <<
+	elapsedTime_serial/elapsedTime_kokkos_cuda_copy << std::endl;
+
 
     std::cout << "kokkos omp runtime of " << elapsedTime_kokkos_omp_nocopy <<
     std::endl;
