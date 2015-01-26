@@ -85,7 +85,7 @@ getElapsedTime(const timespec & start, const timespec & end) {
 
 
 
-
+// NOTE: Everything in RAW_CUDA guards is still from Array of Dot Products
 #ifdef RAW_CUDA
 __global__
 void
@@ -442,29 +442,37 @@ struct KokkosFunctor_Independent {
 
   typedef DeviceType device_type;
 
-  const unsigned int _dotProductSize;
+  const unsigned int _numPoints;
+  const unsigned int _dimVec;
   KokkosDotProductData _data_A;
   KokkosDotProductData _data_B;
   KokkosDotProductResults _results;
 
-  KokkosFunctor_Independent(const unsigned int dotProductSize,
+  KokkosFunctor_Independent(const unsigned int numPoints,
+                            const unsigned int dimVec,
                             KokkosDotProductData data_A,
                             KokkosDotProductData data_B,
                             KokkosDotProductResults results) :
-    _dotProductSize(dotProductSize), _data_A(data_A), _data_B(data_B),
+    _numPoints(dotProductSize), 
+    _dimVec(dimVec),
+    _data_A(data_A), _data_B(data_B),
     _results(results) {
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int dotProductIndex) const {
-    double sum = 0;
-    for (unsigned int entryIndex = 0; entryIndex < _dotProductSize;
-         ++entryIndex) {
-      sum +=
-        _data_A(dotProductIndex, entryIndex) *
-        _data_B(dotProductIndex, entryIndex);
-    }
-    _results(dotProductIndex) = sum;
+  void operator()(const unsigned int cl) const {
+
+    float tmpVal = 0;
+    for (int qp = 0; qp < _numPoints; qp++) {
+      int qpDim = qp * dimVec;
+      for (int iVec = 0; iVec < _dimVec; iVec++) {
+        tmpVal += 
+          _data_A(cl, qp, iVec) *
+          _data_B(cl, qp, iVec);;
+      } // D-loop
+    } // P-loop
+    _results(cl) = tmpVal;
+    
   }
 
 private:
@@ -474,10 +482,11 @@ private:
 
 template <class DeviceType, class KokkosDotProductData>
 double
-runKokkosTest(const unsigned int numberOfDotProducts,
-              const unsigned int numberOfRepeats,
-              const unsigned int dotProductSize,
+runKokkosTest(const unsigned int numberOfRepeats,
               const unsigned int memorySize,
+              const unsigned int numCells,
+              const unsigned int numPoints,
+              const unsigned int dimVec,
               const vector<float> & dotProductData_LayoutRight_A,
               const vector<float> & dotProductData_LayoutRight_B,
               const vector<float> & correctResults,
@@ -497,19 +506,17 @@ runKokkosTest(const unsigned int numberOfDotProducts,
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
   KokkosDotProductData dev_kokkosDotProductData_A("kokkos data A",
-                                                  numberOfDotProducts,
-                                                  dotProductSize);
+                                                  numCells, numPoints, dimVec);
   KokkosDotProductData_Host kokkosDotProductData_A =
     Kokkos::create_mirror_view(dev_kokkosDotProductData_A);
 
   KokkosDotProductData dev_kokkosDotProductData_B("kokkos data B",
-                                                  numberOfDotProducts,
-                                                  dotProductSize);
+                                                  numCells, numPoints, dimVec);
   KokkosDotProductData_Host kokkosDotProductData_B =
     Kokkos::create_mirror_view(dev_kokkosDotProductData_B);
 
   KokkosDotProductResults dev_kokkosDotProductResults("kokkos dot product results",
-                                                      numberOfDotProducts);
+                                                      numCells);
   KokkosDotProductResults_Host kokkosDotProductResults =
     Kokkos::create_mirror_view(dev_kokkosDotProductResults);
 
@@ -519,16 +526,16 @@ runKokkosTest(const unsigned int numberOfDotProducts,
     Kokkos::create_mirror_view(dev_kokkosJunkDataToClearTheCache);
 
   // copy the data into the device views and ship them over
-  for (unsigned int dotProductIndex = 0;
-       dotProductIndex < numberOfDotProducts; ++dotProductIndex) {
-    for (unsigned int entryIndex = 0;
-         entryIndex < dotProductSize; ++entryIndex) {
-      kokkosDotProductData_A(dotProductIndex, entryIndex) =
-        dotProductData_LayoutRight_A[dotProductIndex * dotProductSize +
-                                     entryIndex];
-      kokkosDotProductData_B(dotProductIndex, entryIndex) =
-        dotProductData_LayoutRight_B[dotProductIndex * dotProductSize +
-                                     entryIndex];
+  for (int cl = 0; cl < numCells; ++cl) {
+    int clDim = cl * numPoints * dimVec;
+    for (int qp = 0; qp < numPoints; ++qp) {
+      int qpDim = qp * dimVec;
+      for (int iVec = 0; iVec < dimVec; ++iVec) {
+        kokkosDotProductData_A(cl, qp, iVec) = 
+          dotProductData_LayoutRight_A[clDim + qpDim + iVec];
+        kokkosDotProductData_B(cl, qp, iVec) = 
+          dotProductData_LayoutRight_B[clDim + qpDim + iVec];
+      }
     }
   }
   Kokkos::deep_copy(dev_kokkosDotProductData_A, kokkosDotProductData_A);
@@ -550,7 +557,8 @@ runKokkosTest(const unsigned int numberOfDotProducts,
   KokkosFunctor_Independent<DeviceType,
                             KokkosDotProductData,
                             KokkosDotProductResults>
-    kokkosFunctor_Independent(dotProductSize,
+    kokkosFunctor_Independent(numPoints,
+                              dimVec,
                               dev_kokkosDotProductData_A,
                               dev_kokkosDotProductData_B,
                               dev_kokkosDotProductResults);
@@ -567,7 +575,7 @@ runKokkosTest(const unsigned int numberOfDotProducts,
     }
 
     // actually do the calculation
-    Kokkos::parallel_for(numberOfDotProducts, kokkosFunctor_Independent);
+    Kokkos::parallel_for(numCells, kokkosFunctor_Independent);
 
     // wait for this repeat's results to finish
     Kokkos::fence();
@@ -633,7 +641,7 @@ int main(int argc, char* argv[]) {
   const unsigned int numberOfRepeats =
     (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 10 : 250;
   const string machineName = "shadowfax";
-  const string prefix = "data/ArrayOfDotProducts_";
+  const string prefix = "data/ContractDataDataVector_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   // ********************** </input> ******************************
   // ===============================================================
@@ -745,6 +753,8 @@ int main(int argc, char* argv[]) {
        dotProductSizeIndex < numberOfDotProductSizes;
        ++dotProductSizeIndex) {
     const unsigned int dotProductSize = dotProductSizes[dotProductSizeIndex];
+    const unsigned int dimVec = 8;
+    const unsigned int numPoints = dotProductSize / dimVec;
 
     const timespec thisSizesTic = getTimePoint();
 
@@ -822,9 +832,9 @@ int main(int argc, char* argv[]) {
          memorySizeIndex < numberOfMemorySizes;
          ++memorySizeIndex) {
       const unsigned int memorySize = memorySizes[memorySizeIndex];
-      const unsigned int numberOfDotProducts =
+      const unsigned int numCells =
         memorySize / 4 / sizeof(float) / dotProductSize;
-      if (memorySize != 4 * sizeof(float) * numberOfDotProducts * dotProductSize) {
+      if (memorySize != 4 * sizeof(float) * numCells * dotProductSize) {
         fprintf(stderr, "invalid memory size of %u for dot product size of "
                 "%u because it doesn't divide evenly, remainder is %zu\n",
                 memorySize, dotProductSize,
@@ -847,19 +857,19 @@ int main(int argc, char* argv[]) {
           }
 
           // do the actual calculation
-          for (unsigned int dotProductIndex = 0;
-               dotProductIndex < numberOfDotProducts;
-               ++dotProductIndex) {
-            const unsigned int shortcutIndex = dotProductIndex * dotProductSize;
-            float sum = 0;
-            for (unsigned int entryIndex = 0;
-                 entryIndex < dotProductSize; ++entryIndex) {
-              sum +=
-                dotProductData_LayoutRight_A[shortcutIndex + entryIndex] *
-                dotProductData_LayoutRight_B[shortcutIndex + entryIndex];
-            }
-            dotProductResults[dotProductIndex] = sum;
-          }
+          for (int cl = 0; cl < numCells; cl++) {
+            int clDim = cl * numPoints * dimVec;
+            float tmpVal = 0;
+            for (int qp = 0; qp < numPoints; qp++) {
+              int qpDim = qp * dimVec;
+              for (int iVec = 0; iVec < dimVec; iVec++) {
+                tmpVal += 
+                  dotProductData_LayoutRight_A[clDim + qpDim + iVec] *
+                  dotProductData_LayoutRight_B[clDim + qpDim + iVec];
+              } // D-loop
+            } // P-loop
+            dotProductResults[cl] = tmpVal;
+          } // C-loop
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
@@ -905,19 +915,19 @@ int main(int argc, char* argv[]) {
 #pragma omp parallel for default(none)                                  \
   shared(dotProductData_LayoutRight_A, dotProductData_LayoutRight_B,    \
          dotProductResults)
-          for (unsigned int dotProductIndex = 0;
-               dotProductIndex < numberOfDotProducts;
-               ++dotProductIndex) {
-            const unsigned int shortcutIndex = dotProductIndex * dotProductSize;
-            float sum = 0;
-            for (unsigned int entryIndex = 0;
-                 entryIndex < dotProductSize; ++entryIndex) {
-              sum +=
-                dotProductData_LayoutRight_A[shortcutIndex + entryIndex] *
-                dotProductData_LayoutRight_B[shortcutIndex + entryIndex];
-            }
-            dotProductResults[dotProductIndex] = sum;
-          }
+          for (int cl = 0; cl < numCells; cl++) {
+            int clDim = cl * numPoints * dimVec;
+            float tmpVal = 0;
+            for (int qp = 0; qp < numPoints; qp++) {
+              int qpDim = qp * dimVec;
+              for (int iVec = 0; iVec < dimVec; iVec++) {
+                tmpVal += 
+                  dotProductData_LayoutRight_A[clDim + qpDim + iVec] *
+                  dotProductData_LayoutRight_B[clDim + qpDim + iVec];
+              } // D-loop
+            } // P-loop
+            dotProductResults[cl] = tmpVal;
+          } // C-loop
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
@@ -1053,14 +1063,15 @@ int main(int argc, char* argv[]) {
 
       {
         typedef Kokkos::OpenMP                             DeviceType;
-        typedef Kokkos::View<float**, Kokkos::LayoutRight,
+        typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosDotProductData;
         kokkosOmpTimesMatrix[dotProductSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
-                        KokkosDotProductData>(numberOfDotProducts,
-                                              numberOfRepeats,
-                                              dotProductSize,
+                        KokkosDotProductData>(numberOfRepeats,
                                               memorySize,
+                                              numCells,
+                                              numPoints,
+                                              dimVec,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -1073,16 +1084,17 @@ int main(int argc, char* argv[]) {
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
-        typedef Kokkos::View<float**, Kokkos::LayoutLeft,
+        typedef Kokkos::View<float***, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosDotProductData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
         kokkosCudaIndependentTimesMatrix[dotProductSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
-                        KokkosDotProductData>(numberOfDotProducts,
-                                              numberOfRepeats,
-                                              dotProductSize,
+                        KokkosDotProductData>(numberOfRepeats,
                                               memorySize,
+                                              numCells,
+                                              numPoints,
+                                              dimVec,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
