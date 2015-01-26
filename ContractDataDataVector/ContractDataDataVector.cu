@@ -453,7 +453,7 @@ struct KokkosFunctor_Independent {
                             KokkosDotProductData data_A,
                             KokkosDotProductData data_B,
                             KokkosDotProductResults results) :
-    _numPoints(dotProductSize), 
+    _numPoints(numPoints), 
     _dimVec(dimVec),
     _data_A(data_A), _data_B(data_B),
     _results(results) {
@@ -464,7 +464,6 @@ struct KokkosFunctor_Independent {
 
     float tmpVal = 0;
     for (int qp = 0; qp < _numPoints; qp++) {
-      int qpDim = qp * dimVec;
       for (int iVec = 0; iVec < _dimVec; iVec++) {
         tmpVal += 
           _data_A(cl, qp, iVec) *
@@ -599,13 +598,13 @@ runKokkosTest(const unsigned int numberOfRepeats,
   // copy over the results from the device to the host
   Kokkos::deep_copy(kokkosDotProductResults, dev_kokkosDotProductResults);
   for (unsigned int dotProductIndex = 0;
-       dotProductIndex < numberOfDotProducts; ++dotProductIndex) {
+       dotProductIndex < numCells; ++dotProductIndex) {
     dotProductResults->at(dotProductIndex) =
       kokkosDotProductResults(dotProductIndex);
   }
   // check the results
   checkAnswer(correctResults, *dotProductResults,
-              dotProductSize, memorySize,
+              numPoints * dimVec, memorySize,
               kokkosFlavor);
 
   // scrub the results
@@ -1114,7 +1113,7 @@ int main(int argc, char* argv[]) {
       dotProductSizeMatrix[dotProductSizeIndex][memorySizeIndex] =
         dotProductSize;
       numberOfDotProductsMatrix[dotProductSizeIndex][memorySizeIndex] =
-        numberOfDotProducts;
+        numCells;
       memorySizeMatrix[dotProductSizeIndex][memorySizeIndex] =
         memorySize;
 
