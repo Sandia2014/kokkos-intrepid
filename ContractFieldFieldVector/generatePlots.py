@@ -16,7 +16,7 @@ prefix = 'data/ArrayOfDotProducts_'
 suffix = '_clearCache_shadowfax'
 outputPrefix = 'figures/'
 
-# read in all of the data.  
+# read in all of the data.
 # TODO: you'll need to disable everything that's not relevant here or it'll be angry about missing files
 dotProductSize = numpy.loadtxt(open(prefix + 'dotProductSize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 memorySize = numpy.loadtxt(open(prefix + 'memorySize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
@@ -55,7 +55,7 @@ allNames.append('kokkosCudaIndependent')
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
 #makeImageFiles = False
-makeOrbitFilesForMovies = True
+makeOrbitFilesForMovies = False
 #makeOrbitFilesForMovies = False
 numberOfOrbitFrames = 100
 
@@ -247,6 +247,8 @@ for memorySizeIndex in [-1, 0]:
   else:
     plt.show()
 
+ #WE'RE NOT GOING PAST HERE FOR NOW
+ sys.exit(1)
 
 # now make relative speedup over openmp
 # TODO: you might disable this part

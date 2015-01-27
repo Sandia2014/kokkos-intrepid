@@ -1,5 +1,5 @@
 // -*- C++ -*-
-// ArrayOfTensors.cc
+// ArrayOfDotProducts.cc
 // a huge comparison of different ways of doing an array of dot products
 // Jeff Amelang, 2014
 
@@ -103,49 +103,49 @@ doCudaClearCache_kernel(const unsigned int junkDataSize,
 
 __global__
 void
-doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
-                                     const unsigned int maxNumberOfTensors,
-                                     const unsigned int tensorSize,
-                                     const float * const __restrict__ dev_tensorData_LayoutLeft_A,
-                                     const float * const __restrict__ dev_tensorData_LayoutLeft_B,
-                                     float * dev_tensorResults) {
-  unsigned int tensorIndex = blockIdx.x * blockDim.x + threadIdx.x;
-  while (tensorIndex < numberOfTensors) {
+doCudaDotProducts_Independent_kernel(const unsigned int numberOfDotProducts,
+                                     const unsigned int maxNumberOfDotProducts,
+                                     const unsigned int dotProductSize,
+                                     const float * const __restrict__ dev_dotProductData_LayoutLeft_A,
+                                     const float * const __restrict__ dev_dotProductData_LayoutLeft_B,
+                                     float * dev_dotProductResults) {
+  unsigned int dotProductIndex = blockIdx.x * blockDim.x + threadIdx.x;
+  while (dotProductIndex < numberOfDotProducts) {
     float sum = 0;
-    for (unsigned int entryIndex = 0; entryIndex < tensorSize; ++entryIndex) {
-      const unsigned int index = tensorIndex +
-        entryIndex * maxNumberOfTensors;
+    for (unsigned int entryIndex = 0; entryIndex < dotProductSize; ++entryIndex) {
+      const unsigned int index = dotProductIndex +
+        entryIndex * maxNumberOfDotProducts;
       sum +=
-        dev_tensorData_LayoutLeft_A[index] *
-        dev_tensorData_LayoutLeft_B[index];
+        dev_dotProductData_LayoutLeft_A[index] *
+        dev_dotProductData_LayoutLeft_B[index];
     }
-    dev_tensorResults[tensorIndex] = sum;
-    tensorIndex += blockDim.x * gridDim.x;
+    dev_dotProductResults[dotProductIndex] = sum;
+    dotProductIndex += blockDim.x * gridDim.x;
   }
 }
 
 __global__
 void
-doCudaTensors_Reduction_kernel(const unsigned int numberOfTensors,
-                                   const unsigned int tensorSize,
-                                   const float * const __restrict__ dev_tensorData_LayoutRight_A,
-                                   const float * const __restrict__ dev_tensorData_LayoutRight_B,
-                                   float * dev_tensorResults) {
+doCudaDotProducts_Reduction_kernel(const unsigned int numberOfDotProducts,
+                                   const unsigned int dotProductSize,
+                                   const float * const __restrict__ dev_dotProductData_LayoutRight_A,
+                                   const float * const __restrict__ dev_dotProductData_LayoutRight_B,
+                                   float * dev_dotProductResults) {
 
   extern __shared__ float sharedMemory[];
 
-  unsigned int tensorIndex = blockIdx.x;
-  while (tensorIndex < numberOfTensors) {
+  unsigned int dotProductIndex = blockIdx.x;
+  while (dotProductIndex < numberOfDotProducts) {
 
     // goal: compute the contribution to the dot product from this thread
-    const unsigned int shortcutIndex = tensorIndex * tensorSize;
+    const unsigned int shortcutIndex = dotProductIndex * dotProductSize;
     float partialSum = 0;
     unsigned int entryIndex = threadIdx.x;
-    while (entryIndex < tensorSize) {
+    while (entryIndex < dotProductSize) {
       const unsigned int index = shortcutIndex + entryIndex;
       partialSum +=
-        dev_tensorData_LayoutRight_A[index] *
-        dev_tensorData_LayoutRight_B[index];
+        dev_dotProductData_LayoutRight_A[index] *
+        dev_dotProductData_LayoutRight_B[index];
       entryIndex += blockDim.x;
     }
     // set this thread's value
@@ -177,11 +177,11 @@ doCudaTensors_Reduction_kernel(const unsigned int numberOfTensors,
       partialSum += sharedMemory[warpStartingIndexInSharedMemory + 24];
       partialSum += sharedMemory[warpStartingIndexInSharedMemory + 28];
       // and adds it to the global sum
-      atomicAdd(&dev_tensorResults[tensorIndex], partialSum);
+      atomicAdd(&dev_dotProductResults[dotProductIndex], partialSum);
     }
 
     // move on to the next dot product
-    tensorIndex += gridDim.x;
+    dotProductIndex += gridDim.x;
   }
 }
 
@@ -189,22 +189,22 @@ void
 writeTimesMatrixToFile(const vector<vector<float> > & times,
                        const string filename) {
 
-  const unsigned int numberOfTensorSizes = times.size();
+  const unsigned int numberOfDotProductSizes = times.size();
   // yeah, yeah, kinda unsafe
   const unsigned int numberOfMemorySizes = times[0].size();
   char sprintfBuffer[500];
   sprintf(sprintfBuffer, "%s.csv", filename.c_str());
   FILE* file = fopen(sprintfBuffer, "w");
-  for (unsigned int tensorSizeIndex = 0;
-       tensorSizeIndex < numberOfTensorSizes;
-       ++tensorSizeIndex) {
+  for (unsigned int dotProductSizeIndex = 0;
+       dotProductSizeIndex < numberOfDotProductSizes;
+       ++dotProductSizeIndex) {
     for (unsigned int memorySizeIndex = 0;
          memorySizeIndex < numberOfMemorySizes;
          ++memorySizeIndex) {
       if (memorySizeIndex > 0) {
         fprintf(file, ", ");
       }
-      fprintf(file, "%10.4e", times[tensorSizeIndex][memorySizeIndex]);
+      fprintf(file, "%10.4e", times[dotProductSizeIndex][memorySizeIndex]);
     }
     fprintf(file, "\n");
   }
@@ -213,24 +213,24 @@ writeTimesMatrixToFile(const vector<vector<float> > & times,
 
 void
 checkAnswer(const vector<float> & correctResults,
-            const vector<float> & tensorResults,
-            const unsigned int tensorSize,
+            const vector<float> & dotProductResults,
+            const unsigned int dotProductSize,
             const unsigned int memorySize,
             const string flavorName) {
-  for (unsigned int tensorIndex = 0;
-       tensorIndex < correctResults.size();
-       ++tensorIndex) {
-    if (std::abs(correctResults[tensorIndex] -
-                 tensorResults[tensorIndex]) /
-        std::abs(correctResults[tensorIndex]) > 1e-4) {
+  for (unsigned int dotProductIndex = 0;
+       dotProductIndex < correctResults.size();
+       ++dotProductIndex) {
+    if (std::abs(correctResults[dotProductIndex] -
+                 dotProductResults[dotProductIndex]) /
+        std::abs(correctResults[dotProductIndex]) > 1e-4) {
       fprintf(stderr, "invalid answer for dot product index %u for "
               "flavor %s, "
               "should be %e but we have %e, "
-              "tensorSize = %u, memorySize = %8.2e\n",
-              tensorIndex, flavorName.c_str(),
-              correctResults[tensorIndex],
-              tensorResults[tensorIndex],
-              tensorSize, float(memorySize));
+              "dotProductSize = %u, memorySize = %8.2e\n",
+              dotProductIndex, flavorName.c_str(),
+              correctResults[dotProductIndex],
+              dotProductResults[dotProductIndex],
+              dotProductSize, float(memorySize));
       exit(1);
     }
   }
@@ -241,23 +241,23 @@ runCudaTest(const CudaStyle cudaStyle,
             const unsigned int numberOfThreadsPerBlock,
             const unsigned int numberOfRepeats,
             const unsigned int maxNumberOfCudaBlocks,
-            const unsigned int numberOfTensors,
-            const unsigned int maxNumberOfTensors,
-            const unsigned int tensorSize,
+            const unsigned int numberOfDotProducts,
+            const unsigned int maxNumberOfDotProducts,
+            const unsigned int dotProductSize,
             const unsigned int memorySize,
             const vector<float> & correctResults,
             const ClearCacheStyle clearCacheStyle,
             const int * const dev_junkDataToClearTheCache,
             const unsigned int junkDataSize,
-            const float * const dev_tensorData_A,
-            const float * const dev_tensorData_B,
+            const float * const dev_dotProductData_A,
+            const float * const dev_dotProductData_B,
             int * const dev_junkDataCounter,
             unsigned int * const totalNumberOfRepeats,
-            float * const dev_tensorResults,
-            vector<float> * const tensorResults) {
+            float * const dev_dotProductResults,
+            vector<float> * const dotProductResults) {
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
-        (unsigned int)ceil(numberOfTensors/float(numberOfThreadsPerBlock)));
+        (unsigned int)ceil(numberOfDotProducts/float(numberOfThreadsPerBlock)));
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -272,21 +272,21 @@ runCudaTest(const CudaStyle cudaStyle,
 
     // do the actual calculation
     if (cudaStyle == CudaStyle_Independent) {
-      doCudaTensors_Independent_kernel<<<numberOfBlocks,
-        numberOfThreadsPerBlock>>>(numberOfTensors,
-                                   maxNumberOfTensors,
-                                   tensorSize,
-                                   dev_tensorData_A,
-                                   dev_tensorData_B,
-                                   dev_tensorResults);
+      doCudaDotProducts_Independent_kernel<<<numberOfBlocks,
+        numberOfThreadsPerBlock>>>(numberOfDotProducts,
+                                   maxNumberOfDotProducts,
+                                   dotProductSize,
+                                   dev_dotProductData_A,
+                                   dev_dotProductData_B,
+                                   dev_dotProductResults);
     } else if (cudaStyle == CudaStyle_Reduction) {
-      doCudaTensors_Reduction_kernel<<<numberOfBlocks,
+      doCudaDotProducts_Reduction_kernel<<<numberOfBlocks,
         numberOfThreadsPerBlock,
-        numberOfThreadsPerBlock * sizeof(float)>>>(numberOfTensors,
-                                                   tensorSize,
-                                                   dev_tensorData_A,
-                                                   dev_tensorData_B,
-                                                   dev_tensorResults);
+        numberOfThreadsPerBlock * sizeof(float)>>>(numberOfDotProducts,
+                                                   dotProductSize,
+                                                   dev_dotProductData_A,
+                                                   dev_dotProductData_B,
+                                                   dev_dotProductResults);
     } else {
       fprintf(stderr, "unknown cuda style\n");
       exit(1);
@@ -318,20 +318,20 @@ runCudaTest(const CudaStyle cudaStyle,
     totalElapsedTime = elapsedTime;
   }
   // copy over the results from the gpu to the cpu
-  checkCudaError(cudaMemcpy(&tensorResults->at(0), dev_tensorResults,
-                            numberOfTensors * sizeof(float),
+  checkCudaError(cudaMemcpy(&dotProductResults->at(0), dev_dotProductResults,
+                            numberOfDotProducts * sizeof(float),
                             cudaMemcpyDeviceToHost));
   // check the results
-  checkAnswer(correctResults, *tensorResults,
-              tensorSize, memorySize,
+  checkAnswer(correctResults, *dotProductResults,
+              dotProductSize, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
-  std::fill(tensorResults->begin(),
-            tensorResults->end(),
+  std::fill(dotProductResults->begin(),
+            dotProductResults->end(),
             std::numeric_limits<float>::quiet_NaN());
-  checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults->at(0),
-                            numberOfTensors * sizeof(float),
+  checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults->at(0),
+                            numberOfDotProducts * sizeof(float),
                             cudaMemcpyHostToDevice));
 
   return totalElapsedTime;
@@ -340,48 +340,48 @@ runCudaTest(const CudaStyle cudaStyle,
 double
 runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      const unsigned int maxNumberOfCudaBlocks,
-                     const unsigned int numberOfTensors,
-                     const unsigned int maxNumberOfTensors,
-                     const unsigned int tensorSize,
+                     const unsigned int numberOfDotProducts,
+                     const unsigned int maxNumberOfDotProducts,
+                     const unsigned int dotProductSize,
                      const unsigned int memorySize,
                      const vector<float> & correctResults,
                      const ClearCacheStyle clearCacheStyle,
                      const int * const dev_junkDataToClearTheCache,
                      const unsigned int junkDataSize,
-                     const float * const dev_tensorData_LayoutLeft_A,
-                     const float * const dev_tensorData_LayoutLeft_B,
-                     const float * const dev_tensorData_LayoutRight_A,
-                     const float * const dev_tensorData_LayoutRight_B,
+                     const float * const dev_dotProductData_LayoutLeft_A,
+                     const float * const dev_dotProductData_LayoutLeft_B,
+                     const float * const dev_dotProductData_LayoutRight_A,
+                     const float * const dev_dotProductData_LayoutRight_B,
                      int * const dev_junkDataCounter,
                      unsigned int * const totalNumberOfRepeats,
-                     float * const dev_tensorResults,
-                     vector<float> * const tensorResults) {
+                     float * const dev_dotProductResults,
+                     vector<float> * const dotProductResults) {
   // if i can't saturate occupancy, do the reduction version
   // i got this number by just looking at where the plots crossed, where
   //  the reduction style actually starts beating the independent.
-  if (numberOfTensors < 200) {
+  if (numberOfDotProducts < 200) {
     const unsigned int numberOfThreadsPerBlock =
       std::min(unsigned(1024),
-               unsigned(ceil(tensorSize / 32.)) * 32);
+               unsigned(ceil(dotProductSize / 32.)) * 32);
     return
       runCudaTest(CudaStyle_Reduction,
                   numberOfThreadsPerBlock,
                   numberOfRepeats,
                   maxNumberOfCudaBlocks,
-                  numberOfTensors,
-                  maxNumberOfTensors,
-                  tensorSize,
+                  numberOfDotProducts,
+                  maxNumberOfDotProducts,
+                  dotProductSize,
                   memorySize,
                   correctResults,
                   clearCacheStyle,
                   dev_junkDataToClearTheCache,
                   junkDataSize,
-                  dev_tensorData_LayoutRight_A,
-                  dev_tensorData_LayoutRight_B,
+                  dev_dotProductData_LayoutRight_A,
+                  dev_dotProductData_LayoutRight_B,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
-                  dev_tensorResults,
-                  tensorResults);
+                  dev_dotProductResults,
+                  dotProductResults);
   } else {
     const unsigned int numberOfThreadsPerBlock = 1024;
     return
@@ -389,20 +389,20 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   numberOfThreadsPerBlock,
                   numberOfRepeats,
                   maxNumberOfCudaBlocks,
-                  numberOfTensors,
-                  maxNumberOfTensors,
-                  tensorSize,
+                  numberOfDotProducts,
+                  maxNumberOfDotProducts,
+                  dotProductSize,
                   memorySize,
                   correctResults,
                   clearCacheStyle,
                   dev_junkDataToClearTheCache,
                   junkDataSize,
-                  dev_tensorData_LayoutLeft_A,
-                  dev_tensorData_LayoutLeft_B,
+                  dev_dotProductData_LayoutLeft_A,
+                  dev_dotProductData_LayoutLeft_B,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
-                  dev_tensorResults,
-                  tensorResults);
+                  dev_dotProductResults,
+                  dotProductResults);
   }
 }
 
@@ -435,35 +435,35 @@ private:
 
 };
 
-template <class DeviceType, class KokkosTensorData,
-          class KokkosTensorResults>
+template <class DeviceType, class KokkosDotProductData,
+          class KokkosDotProductResults>
 struct KokkosFunctor_Independent {
 
   typedef DeviceType device_type;
 
-  const unsigned int _tensorSize;
-  KokkosTensorData _data_A;
-  KokkosTensorData _data_B;
-  KokkosTensorResults _results;
+  const unsigned int _dotProductSize;
+  KokkosDotProductData _data_A;
+  KokkosDotProductData _data_B;
+  KokkosDotProductResults _results;
 
-  KokkosFunctor_Independent(const unsigned int tensorSize,
-                            KokkosTensorData data_A,
-                            KokkosTensorData data_B,
-                            KokkosTensorResults results) :
-    _tensorSize(tensorSize), _data_A(data_A), _data_B(data_B),
+  KokkosFunctor_Independent(const unsigned int dotProductSize,
+                            KokkosDotProductData data_A,
+                            KokkosDotProductData data_B,
+                            KokkosDotProductResults results) :
+    _dotProductSize(dotProductSize), _data_A(data_A), _data_B(data_B),
     _results(results) {
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int tensorIndex) const {
+  void operator()(const unsigned int dotProductIndex) const {
     double sum = 0;
-    for (unsigned int entryIndex = 0; entryIndex < _tensorSize;
+    for (unsigned int entryIndex = 0; entryIndex < _dotProductSize;
          ++entryIndex) {
       sum +=
-        _data_A(tensorIndex, entryIndex) *
-        _data_B(tensorIndex, entryIndex);
+        _data_A(dotProductIndex, entryIndex) *
+        _data_B(dotProductIndex, entryIndex);
     }
-    _results(tensorIndex) = sum;
+    _results(dotProductIndex) = sum;
   }
 
 private:
@@ -471,131 +471,46 @@ private:
 
 };
 
-
-template<class DeviceType, class LeftViewType, class RightViewType, class
-OutputViewType>
-struct contractFieldFieldTensorFunctor {
-    typedef DeviceType device_type;
-    LeftViewType _leftFields;
-    RightViewType _rightFields;
-    OutputViewType _outputFields;
-    int _numCells;
-    int _numLeftFields;
-    int _numRightFields;
-    int _numPoints;
-    int _dim1Tens;
-    int _dim2Tens;
-
-    contractFieldFieldTensorFunctor(LeftViewType leftFields, RightViewType
-    rightFields, OutputViewType outputFields, int numCells, int numLeftFields, int
-    numRightFields, int numPoints, int dim1Tens, int dim2Tens) :
-    _leftFields(leftFields), _rightFields(rightFields),
-    _outputFields(outputFields), _numCells(numCells), _numPoints(numPoints),
-    _numLeftFields(numLeftFields), _numRightFields(numRightFields),
-    _dim1Tens(dim1Tens), _dim2Tens(dim2Tens)
-    {
-    
-    }
-
-    // This function expects the views to be in this order:
-    // left(cell, leftBasis, points, dim1Tens, dim2Tens)
-    // right(cell, points, dim1Tens, dim2Tens, rightBasis)
-    KOKKOS_INLINE_FUNCTION
-	void operator() (const unsigned int elementIndex) const {
-	    int myID = elementIndex;
-
-	    if(myID < (_numCells * _numLeftFields * _numRightFields)) {
-		// Calculating the index in the output array for this
-		// thread
-		int myCell = myID / (_numLeftFields * _numRightFields);
-		int matrixIndex = myID % (_numLeftFields * _numRightFields);
-		int lbf = matrixIndex / _numRightFields;
-		int rbf = matrixIndex % _numRightFields;
-		
-		double temp = 0;
-		for (int qp = 0; qp < _numPoints; qp++) {
-		    for (int iTens1 = 0; iTens1 < _dim1Tens; iTens1++) {
-			for (int iTens2 = 0; iTens2 < _dim2Tens; iTens2++) {
-			    temp += _leftFields(myCell, lbf, qp, iTens1, iTens2) *
-				_rightFields(myCell, qp, iTens1, iTens2, rbf);
-			}
-		    }
-		}
-		_outputFields(myCell, lbf, rbf) = temp;
-	    }
-	}
-
-};
-
-
-
-
-
-template <class DeviceType, class InputViewType>
+template <class DeviceType, class KokkosDotProductData>
 double
-runKokkosTest(const unsigned int numCells,
+runKokkosTest(const unsigned int numberOfDotProducts,
               const unsigned int numberOfRepeats,
-              const unsigned int numLeftFields,
-	      const unsigned int numRightFields,
+              const unsigned int dotProductSize,
               const unsigned int memorySize,
-              const vector<float> & tensorData_LayoutRight_A,
-              const vector<float> & tensorData_LayoutRight_B,
+              const vector<float> & dotProductData_LayoutRight_A,
+              const vector<float> & dotProductData_LayoutRight_B,
               const vector<float> & correctResults,
               const string & kokkosFlavor,
               const ClearCacheStyle clearCacheStyle,
               const vector<int> & junkDataToClearTheCache,
               size_t * junkDataCounter,
               unsigned int * const totalNumberOfRepeats,
-              vector<float> * results) {
+              vector<float> * dotProductResults) {
 
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
-  typedef typename InputViewType::HostMirror     Kokkos_input_Host;
-  typedef Kokkos::View<float***, Kokkos::LayoutRight, DeviceType>              KokkosResults;
-  typedef typename KokkosResults::HostMirror  KokkosResults_Host;
+  typedef typename KokkosDotProductData::HostMirror     KokkosDotProductData_Host;
+  typedef Kokkos::View<float*, DeviceType>              KokkosDotProductResults;
+  typedef typename KokkosDotProductResults::HostMirror  KokkosDotProductResults_Host;
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
-    int p=10, t1=10, t2=10;
+  KokkosDotProductData dev_kokkosDotProductData_A("kokkos data A",
+                                                  numberOfDotProducts,
+                                                  dotProductSize);
+  KokkosDotProductData_Host kokkosDotProductData_A =
+    Kokkos::create_mirror_view(dev_kokkosDotProductData_A);
 
-    // These are indices into the arrays and should not be
-    // changed unless you change the order of the indices
-    // as well
-    int cLOff = numLeftFields*p*t1*t2;
-    int cROff = numRightFields*p*t1*t2;
-    int basisOff = p*t1*t2;
-    int pLOff = t1*t2;
-    int pROff = t1*t2*numRightFields;
-    int tROff = t2*numRightFields;
-    int t2ROff = numRightFields;
-    int tOff = t2;
+  KokkosDotProductData dev_kokkosDotProductData_B("kokkos data B",
+                                                  numberOfDotProducts,
+                                                  dotProductSize);
+  KokkosDotProductData_Host kokkosDotProductData_B =
+    Kokkos::create_mirror_view(dev_kokkosDotProductData_B);
 
-  InputViewType dev_kokkosData_Right("kokkos data A",
-                                                  numCells,
-						  p,
-						  t1,
-						  t2,
-						  numRightFields);
-
-  Kokkos_input_Host kokkosData_Right =
-    Kokkos::create_mirror_view(dev_kokkosData_Right);
-
-  InputViewType dev_kokkosData_Left("kokkos data B",
-                                                 numCells,
-						 numLeftFields,
-                                                 p,
-						 t1,
-						 t2);
-
-  Kokkos_input_Host kokkosData_Left =
-    Kokkos::create_mirror_view(dev_kokkosData_Left);
-
-  KokkosResults dev_kokkosResults("kokkos dot product results",
-                                                      numCells,
-						      numLeftFields,
-						      numRightFields);
-  KokkosResults_Host kokkosResults =
-    Kokkos::create_mirror_view(dev_kokkosResults);
+  KokkosDotProductResults dev_kokkosDotProductResults("kokkos dot product results",
+                                                      numberOfDotProducts);
+  KokkosDotProductResults_Host kokkosDotProductResults =
+    Kokkos::create_mirror_view(dev_kokkosDotProductResults);
 
   KokkosJunkVector dev_kokkosJunkDataToClearTheCache("kokkos junk data to clear cache",
                                                      junkDataSize);
@@ -603,40 +518,20 @@ runKokkosTest(const unsigned int numCells,
     Kokkos::create_mirror_view(dev_kokkosJunkDataToClearTheCache);
 
   // copy the data into the device views and ship them over
-  /* for (unsigned int tensorIndex = 0;
-       tensorIndex < numberOfTensors; ++tensorIndex) {
+  for (unsigned int dotProductIndex = 0;
+       dotProductIndex < numberOfDotProducts; ++dotProductIndex) {
     for (unsigned int entryIndex = 0;
-         entryIndex < tensorSize; ++entryIndex) {
-      kokkosTensorData_A(tensorIndex, entryIndex) =
-        tensorData_LayoutRight_A[tensorIndex * tensorSize +
+         entryIndex < dotProductSize; ++entryIndex) {
+      kokkosDotProductData_A(dotProductIndex, entryIndex) =
+        dotProductData_LayoutRight_A[dotProductIndex * dotProductSize +
                                      entryIndex];
-      kokkosTensorData_B(tensorIndex, entryIndex) =
-        tensorData_LayoutRight_B[tensorIndex * tensorSize +
+      kokkosDotProductData_B(dotProductIndex, entryIndex) =
+        dotProductData_LayoutRight_B[dotProductIndex * dotProductSize +
                                      entryIndex];
     }
-  } */
-  for (int cl = 0; cl < numCells; ++cl) {
-	for (int qp = 0; qp < p; ++qp) {
-	    for (int iTens1 = 0; iTens1 < t1; ++iTens1) {
-		for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
-		    for(int rbf = 0; rbf < numRightFields; ++rbf) {
-			kokkosData_Right(cl, qp, iTens1, iTens2, rbf) =
-			    tensorData_LayoutRight_A[cl*cROff + rbf + qp*pROff + 
-			    iTens1*tROff + iTens2*t2ROff];
-		    }
-		    for(int lbf = 0; lbf < numLeftFields; ++lbf) {
-			kokkosData_Left(cl, lbf, qp, iTens1, iTens2) =
-			    tensorData_LayoutRight_B[cl*cLOff + lbf*basisOff + qp*pLOff +
-			    iTens1*tOff + iTens2];
-		    }
-		}
-	    }
-	}
-    } 
-
-
-  Kokkos::deep_copy(dev_kokkosData_Right, kokkosData_Right);
-  Kokkos::deep_copy(dev_kokkosData_Left, kokkosData_Left);
+  }
+  Kokkos::deep_copy(dev_kokkosDotProductData_A, kokkosDotProductData_A);
+  Kokkos::deep_copy(dev_kokkosDotProductData_B, kokkosDotProductData_B);
 
   // copy the data into the device views and ship them over
   for (unsigned int junkDataIndex = 0;
@@ -651,19 +546,13 @@ runKokkosTest(const unsigned int numCells,
     kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
 
   // breaking formatting convention because holy freak that's long
-  contractFieldFieldTensorFunctor<DeviceType,
-                            InputViewType,
-			    InputViewType,
-                            KokkosResults>
-    tensorFunctor(dev_kokkosData_Left,
-                              dev_kokkosData_Right,
-                              dev_kokkosResults,
-			      numCells,
-			      numLeftFields,
-			      numRightFields,
-			      p,
-			      t1,
-			      t2);
+  KokkosFunctor_Independent<DeviceType,
+                            KokkosDotProductData,
+                            KokkosDotProductResults>
+    kokkosFunctor_Independent(dotProductSize,
+                              dev_kokkosDotProductData_A,
+                              dev_kokkosDotProductData_B,
+                              dev_kokkosDotProductResults);
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -677,10 +566,11 @@ runKokkosTest(const unsigned int numCells,
     }
 
     // actually do the calculation
-    Kokkos::parallel_for(numCells*numRightFields*numLeftFields, tensorFunctor);
+    Kokkos::parallel_for(numberOfDotProducts, kokkosFunctor_Independent);
 
     // wait for this repeat's results to finish
     Kokkos::fence();
+
     if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
       const timespec toc = getTimePoint();
       const float elapsedTime = getElapsedTime(tic, toc);
@@ -697,106 +587,28 @@ runKokkosTest(const unsigned int numCells,
     const timespec toc = getTimePoint();
     totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
   }
-  /*
   // copy over the results from the device to the host
-  Kokkos::deep_copy(kokkosResults, dev_kokkosResults);
-  for (unsigned int tensorIndex = 0;
-       tensorIndex < numberOfTensors; ++tensorIndex) {
-    tensorResults->at(tensorIndex) =
-      kokkosTensorResults(tensorIndex);
+  Kokkos::deep_copy(kokkosDotProductResults, dev_kokkosDotProductResults);
+  for (unsigned int dotProductIndex = 0;
+       dotProductIndex < numberOfDotProducts; ++dotProductIndex) {
+    dotProductResults->at(dotProductIndex) =
+      kokkosDotProductResults(dotProductIndex);
   }
   // check the results
-  checkAnswer(correctResults, *tensorResults,
-              tensorSize, memorySize,
+  checkAnswer(correctResults, *dotProductResults,
+              dotProductSize, memorySize,
               kokkosFlavor);
-  */
 
   // scrub the results
-  std::fill(results->begin(),
-            results->end(),
+  std::fill(dotProductResults->begin(),
+            dotProductResults->end(),
             std::numeric_limits<float>::quiet_NaN());
+
   return totalElapsedTime;
 }
 
 #endif // ENABLE_KOKKOS
 
-
-
-void contractFieldFieldTensorSerial(vector<float> outputFields,
-                                    vector<float>   leftFields,
-                                    vector<float>  rightFields,
-                                    const bool sumInto,
-				    int numCells,
-				    int numLeftFields,
-				    int numRightFields,
-				    int numPoints,
-				    int dim1Tensor,
-				    int dim2Tensor) {
-    /* This function expects the left and right arrays to be in the order of
-     * (cell, left or right, points, dim1Tens, dim2Tens). That is the way
-     * the indexing is calculated.
-     */
-    
-    if (sumInto) {
-	for (int cl = 0; cl < numCells; cl++) {
-	    // Need to index into the different arrays, so I am doing the 
-	    // calculation once here
-	    int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
-	    int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
-	    int cOut = numLeftFields*numRightFields;
-	    for (int lbf = 0; lbf < numLeftFields; lbf++) {
-		int lOff = numPoints*dim1Tensor*dim2Tensor;
-		int lOut = numRightFields;
-		for (int rbf = 0; rbf < numRightFields; rbf++) {
-		    float tmpVal = 0;
-		    int rOff = numPoints*dim1Tensor*dim2Tensor;
-		    for (int qp = 0; qp < numPoints; qp++) {
-			int pOff = dim1Tensor*dim2Tensor;
-			for (int iTens1 = 0; iTens1 < dim1Tensor; iTens1++) {
-			    int tenOff = dim2Tensor;
-			    for (int iTens2 = 0; iTens2 < dim2Tensor; iTens2++) {
-				tmpVal +=
-				leftFields[cl*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
-				rightFields[cl*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
-			    } // D2-loop
-			} // D1-loop
-		    } // P-loop
-		    outputFields[cl*cOut+lbf*lOut+rbf] += tmpVal;
-		} // R-loop
-	    } // L-loop
-	} // C-loop
-    }
-    // This is exactly the same as above but outputfields is set equal
-    // to temp instead of += temp
-    else {
-	for (int cl = 0; cl < numCells; cl++) {
-	    int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
-	    int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
-	    int cOut = numLeftFields*numRightFields;
-	    for (int lbf = 0; lbf < numLeftFields; lbf++) {
-		int lOff = numPoints*dim1Tensor*dim2Tensor;
-		int lOut = numRightFields;
-		for (int rbf = 0; rbf < numRightFields; rbf++) {
-		    float tmpVal = 0;
-		    int rOff = numPoints*dim1Tensor*dim2Tensor;
-		    for (int qp = 0; qp < numPoints; qp++) {
-			int pOff = dim1Tensor*dim2Tensor;
-			for (int iTens1 = 0; iTens1 < dim1Tensor; iTens1++) {
-			    int tenOff = dim2Tensor;
-			    for (int iTens2 = 0; iTens2 < dim2Tensor; iTens2++) {
-				tmpVal +=
-				leftFields[cl*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
-				rightFields[cl*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
-			    } // D2-loop
-			} // D1-loop
-		    } // P-loop
-		    outputFields[cl*cOut+lbf*lOut+rbf] = tmpVal;
-		} // R-loop
-	    } // L-loop
-	} // C-loop
-   }
-} // end contractFieldFieldTensor
- 
 
 
 int main(int argc, char* argv[]) {
@@ -808,23 +620,23 @@ int main(int argc, char* argv[]) {
   // ===============================================================
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-  const vector<unsigned int> tensorSizes =
-    {{1000, 4000, 40000}};
+  const vector<unsigned int> dotProductSizes =
+    {{8, 16, 32, 64, 128, 256, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
-  const unsigned int numberOfMemorySizes = 10;
-  //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
+  const unsigned int numberOfMemorySizes = 20;
+  const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 1 : 250;
+    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 10 : 250;
   const string machineName = "shadowfax";
-  const string prefix = "data/ContractFieldFieldTensor_";
+  const string prefix = "data/ArrayOfDotProducts_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   // ********************** </input> ******************************
   // ===============================================================
 
   // derive some values from the inputs
-  const unsigned int numberOfTensorSizes = tensorSizes.size();
+  const unsigned int numberOfDotProductSizes = dotProductSizes.size();
   const string clearCacheStyleString =
     (clearCacheStyle == ClearCacheAfterEveryRepeat) ? "clearCache" :
     "dontClearCache";
@@ -838,16 +650,17 @@ int main(int argc, char* argv[]) {
     const float minLog = log10(memorySizeExtrema[0]);
     const float maxLog = log10(memorySizeExtrema[1]);
     const float thisLog = minLog + percent * (maxLog - minLog);
-    const unsigned int maxTensorSize = tensorSizes.back();
+    const unsigned int maxDotProductSize = dotProductSizes.back();
     // memory size is linear on a log scale, but rounded to a multiple of the
     //  largest dot product size
     const unsigned int desiredMemorySizeInBytes = pow(10., thisLog);
     // now, in this amount of memory i have to fit two vectors of data
     // that are multiples of the max dot product size
+
+    magic = 2*l*maxContraction *sizeOf(float) + 2*maxContraction *sizeOf(float);
     const unsigned int memorySizeInBytes =
       unsigned(desiredMemorySizeInBytes /
-               float(4 * sizeof(float) * maxTensorSize)) *
-      4 * sizeof(float) * maxTensorSize;
+               magic) * magic;
     memorySizes[memorySizeIndex] = memorySizeInBytes;
   }
 
@@ -859,40 +672,37 @@ int main(int argc, char* argv[]) {
   // i feel a little dirty using a vector<vector>, but i don't want to introduce
   //  a dependence on eigen or something for a real matrix.
   vector<vector<float> >
-    tensorSizeMatrix(numberOfTensorSizes,
+    dotProductSizeMatrix(numberOfDotProductSizes,
                          vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    numberOfTensorsMatrix(numberOfTensorSizes,
+    numberOfDotProductsMatrix(numberOfDotProductSizes,
                               vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    memorySizeMatrix(numberOfTensorSizes,
+    memorySizeMatrix(numberOfDotProductSizes,
                      vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    serialTimesMatrix(numberOfTensorSizes,
+    serialTimesMatrix(numberOfDotProductSizes,
                       vector<float>(numberOfMemorySizes, 0));
-
   vector<vector<float> >
-    ompTimesMatrix(numberOfTensorSizes,
+    ompTimesMatrix(numberOfDotProductSizes,
                    vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    cudaIndependent_TimesMatrix(numberOfTensorSizes,
+    cudaIndependent_TimesMatrix(numberOfDotProductSizes,
                                 vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    cudaReduction_TimesMatrix(numberOfTensorSizes,
+    cudaReduction_TimesMatrix(numberOfDotProductSizes,
                               vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    cudaSwitchingTimesMatrix(numberOfTensorSizes,
+    cudaSwitchingTimesMatrix(numberOfDotProductSizes,
                              vector<float>(numberOfMemorySizes, 0));
-
 #ifdef ENABLE_KOKKOS
   vector<vector<float> >
-    kokkosOmpTimesMatrix(numberOfTensorSizes,
+    kokkosOmpTimesMatrix(numberOfDotProductSizes,
                          vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    kokkosCudaIndependentTimesMatrix(numberOfTensorSizes,
+    kokkosCudaIndependentTimesMatrix(numberOfDotProductSizes,
                                      vector<float>(numberOfMemorySizes, 0));
 #endif
-
 
   // create some junk data to use in clearing the cache
   size_t junkDataCounter = 0;
@@ -922,81 +732,79 @@ int main(int argc, char* argv[]) {
   unsigned int totalNumberOfRepeats = 0;
 
   // for each dot product size
-  for (unsigned int tensorSizeIndex = 0;
-	tensorSizeIndex < numberOfTensorSizes;
-       ++tensorSizeIndex) {
-    const unsigned int tensorSize = tensorSizes[tensorSizeIndex];
+  for (unsigned int dotProductSizeIndex = 0;
+       dotProductSizeIndex < numberOfDotProductSizes;
+       ++dotProductSizeIndex) {
+    const unsigned int dotProductSize = dotProductSizes[dotProductSizeIndex];
 
     const timespec thisSizesTic = getTimePoint();
 
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
-    const unsigned int maxNumberOfTensors =
-      memorySizes.back() / 4 / sizeof(float) / tensorSize;
-    vector<float> tensorData_LayoutRight_A(maxNumberOfTensors * tensorSize);
-    vector<float> tensorData_LayoutRight_B(tensorData_LayoutRight_A.size());
-    vector<float> tensorData_LayoutLeft_A(tensorData_LayoutRight_A.size());
-    vector<float> tensorData_LayoutLeft_B(tensorData_LayoutRight_B.size());
-    for (unsigned int tensorIndex = 0;
-         tensorIndex < maxNumberOfTensors; ++tensorIndex) {
+    const unsigned int maxNumberOfDotProducts =
+      memorySizes.back() / 4 / sizeof(float) / dotProductSize;
+    vector<float> dotProductData_LayoutRight_A(maxNumberOfDotProducts * dotProductSize);
+    vector<float> dotProductData_LayoutRight_B(dotProductData_LayoutRight_A.size());
+    vector<float> dotProductData_LayoutLeft_A(dotProductData_LayoutRight_A.size());
+    vector<float> dotProductData_LayoutLeft_B(dotProductData_LayoutRight_B.size());
+    for (unsigned int dotProductIndex = 0;
+         dotProductIndex < maxNumberOfDotProducts; ++dotProductIndex) {
       for (unsigned int entryIndex = 0;
-           entryIndex < tensorSize; ++entryIndex) {
-	
+           entryIndex < dotProductSize; ++entryIndex) {
         const unsigned int layoutRightIndex =
-          tensorIndex * tensorSize + entryIndex;
-        tensorData_LayoutRight_A[layoutRightIndex] =
+          dotProductIndex * dotProductSize + entryIndex;
+        dotProductData_LayoutRight_A[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
-        tensorData_LayoutRight_B[layoutRightIndex] =
+        dotProductData_LayoutRight_B[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
         const unsigned int layoutLeftIndex =
-          entryIndex * maxNumberOfTensors + tensorIndex;
-        tensorData_LayoutLeft_A[layoutLeftIndex] =
-          tensorData_LayoutRight_A[layoutRightIndex];
-        tensorData_LayoutLeft_B[layoutLeftIndex] =
-          tensorData_LayoutRight_B[layoutRightIndex];
+          entryIndex * maxNumberOfDotProducts + dotProductIndex;
+        dotProductData_LayoutLeft_A[layoutLeftIndex] =
+          dotProductData_LayoutRight_A[layoutRightIndex];
+        dotProductData_LayoutLeft_B[layoutLeftIndex] =
+          dotProductData_LayoutRight_B[layoutRightIndex];
       }
     }
-    vector<float>
-    tensorResults(maxNumberOfTensors*(tensorSize/1000)*(tensorSize/1000),
+    vector<float> dotProductResults(maxNumberOfDotProducts,
                                     std::numeric_limits<float>::quiet_NaN());
 
-   
+
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
-    float * dev_tensorData_LayoutRight_A;
-    checkCudaError(cudaMalloc((void **) &dev_tensorData_LayoutRight_A,
-                              maxNumberOfTensors * tensorSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_tensorData_LayoutRight_A,
-                              &tensorData_LayoutRight_A[0],
-                              maxNumberOfTensors * tensorSize * sizeof(float),
+    float * dev_dotProductData_LayoutRight_A;
+    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutRight_A,
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutRight_A,
+                              &dotProductData_LayoutRight_A[0],
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-    float * dev_tensorData_LayoutRight_B;
-    checkCudaError(cudaMalloc((void **) &dev_tensorData_LayoutRight_B,
-                              maxNumberOfTensors * tensorSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_tensorData_LayoutRight_B,
-                              &tensorData_LayoutRight_B[0],
-                              maxNumberOfTensors * tensorSize * sizeof(float),
+    float * dev_dotProductData_LayoutRight_B;
+    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutRight_B,
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutRight_B,
+                              &dotProductData_LayoutRight_B[0],
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-    float * dev_tensorResults;
-    checkCudaError(cudaMalloc((void **) &dev_tensorResults,
-                              maxNumberOfTensors * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults[0],
-                              maxNumberOfTensors * sizeof(float),
+    float * dev_dotProductResults;
+    checkCudaError(cudaMalloc((void **) &dev_dotProductResults,
+                              maxNumberOfDotProducts * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults[0],
+                              maxNumberOfDotProducts * sizeof(float),
                               cudaMemcpyHostToDevice));
     // make and populate the LayoutLeft versions
-    float * dev_tensorData_LayoutLeft_A;
-    checkCudaError(cudaMalloc((void **) &dev_tensorData_LayoutLeft_A,
-                              maxNumberOfTensors * tensorSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_tensorData_LayoutLeft_A,
-                              &tensorData_LayoutLeft_A[0],
-                              maxNumberOfTensors * tensorSize * sizeof(float),
+    float * dev_dotProductData_LayoutLeft_A;
+    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutLeft_A,
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutLeft_A,
+                              &dotProductData_LayoutLeft_A[0],
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-    float * dev_tensorData_LayoutLeft_B;
-    checkCudaError(cudaMalloc((void **) &dev_tensorData_LayoutLeft_B,
-                              maxNumberOfTensors * tensorSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_tensorData_LayoutLeft_B,
-                              &tensorData_LayoutLeft_B[0],
-                              maxNumberOfTensors * tensorSize * sizeof(float),
+    float * dev_dotProductData_LayoutLeft_B;
+    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutLeft_B,
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutLeft_B,
+                              &dotProductData_LayoutLeft_B[0],
+                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
                               cudaMemcpyHostToDevice));
 
     // for each memory size
@@ -1004,13 +812,13 @@ int main(int argc, char* argv[]) {
          memorySizeIndex < numberOfMemorySizes;
          ++memorySizeIndex) {
       const unsigned int memorySize = memorySizes[memorySizeIndex];
-      const unsigned int numberOfTensors =
-        memorySize / 4 / sizeof(float) / tensorSize;
-      if (memorySize != 4 * sizeof(float) * numberOfTensors * tensorSize) {
+      const unsigned int numberOfDotProducts =
+        memorySize / 4 / sizeof(float) / dotProductSize;
+      if (memorySize != 4 * sizeof(float) * numberOfDotProducts * dotProductSize) {
         fprintf(stderr, "invalid memory size of %u for dot product size of "
                 "%u because it doesn't divide evenly, remainder is %zu\n",
-                memorySize, tensorSize,
-                memorySize % (4 * sizeof(float) * tensorSize));
+                memorySize, dotProductSize,
+                memorySize % (4 * sizeof(float) * dotProductSize));
         exit(1);
       }
 
@@ -1027,14 +835,26 @@ int main(int argc, char* argv[]) {
               clearCacheStyle == ClearCacheAfterEveryRepeat) {
             tic = getTimePoint();
           }
+
           // do the actual calculation
-          contractFieldFieldTensorSerial(tensorResults,
-	  tensorData_LayoutRight_B, tensorData_LayoutRight_A, false,
-	  numberOfTensors, (tensorSize/1000), (tensorSize/1000), 10, 10, 10);
+          for (unsigned int dotProductIndex = 0;
+               dotProductIndex < numberOfDotProducts;
+               ++dotProductIndex) {
+            const unsigned int shortcutIndex = dotProductIndex * dotProductSize;
+            float sum = 0;
+            for (unsigned int entryIndex = 0;
+                 entryIndex < dotProductSize; ++entryIndex) {
+              sum +=
+                dotProductData_LayoutRight_A[shortcutIndex + entryIndex] *
+                dotProductData_LayoutRight_B[shortcutIndex + entryIndex];
+            }
+            dotProductResults[dotProductIndex] = sum;
+          }
+
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
-            serialTimesMatrix[tensorSizeIndex][memorySizeIndex] += elapsedTime;
+            serialTimesMatrix[dotProductSizeIndex][memorySizeIndex] += elapsedTime;
 
             junkDataCounter +=
               std::accumulate(junkDataToClearTheCache.begin(),
@@ -1044,19 +864,19 @@ int main(int argc, char* argv[]) {
         if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
           const timespec toc = getTimePoint();
           const float elapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
-          serialTimesMatrix[tensorSizeIndex][memorySizeIndex] = elapsedTime;
+          serialTimesMatrix[dotProductSizeIndex][memorySizeIndex] = elapsedTime;
         }
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ********************** </do serial> ***************************
       // ===============================================================
-      const vector<float> correctResults = tensorResults;
+
+      const vector<float> correctResults = dotProductResults;
       // scrub the results
-      std::fill(tensorResults.begin(),
-                tensorResults.end(),
+      std::fill(dotProductResults.begin(),
+                dotProductResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
 
-    #if 0
       // ===============================================================
       // ********************** < do omp> ******************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1073,26 +893,26 @@ int main(int argc, char* argv[]) {
 
           // do the actual calculation
 #pragma omp parallel for default(none)                                  \
-  shared(tensorData_LayoutRight_A, tensorData_LayoutRight_B,    \
-         tensorResults)
-          for (unsigned int tensorIndex = 0;
-               tensorIndex < numberOfTensors;
-               ++tensorIndex) {
-            const unsigned int shortcutIndex = tensorIndex * tensorSize;
+  shared(dotProductData_LayoutRight_A, dotProductData_LayoutRight_B,    \
+         dotProductResults)
+          for (unsigned int dotProductIndex = 0;
+               dotProductIndex < numberOfDotProducts;
+               ++dotProductIndex) {
+            const unsigned int shortcutIndex = dotProductIndex * dotProductSize;
             float sum = 0;
             for (unsigned int entryIndex = 0;
-                 entryIndex < tensorSize; ++entryIndex) {
+                 entryIndex < dotProductSize; ++entryIndex) {
               sum +=
-                tensorData_LayoutRight_A[shortcutIndex + entryIndex] *
-                tensorData_LayoutRight_B[shortcutIndex + entryIndex];
+                dotProductData_LayoutRight_A[shortcutIndex + entryIndex] *
+                dotProductData_LayoutRight_B[shortcutIndex + entryIndex];
             }
-            tensorResults[tensorIndex] = sum;
+            dotProductResults[dotProductIndex] = sum;
           }
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
-            ompTimesMatrix[tensorSizeIndex][memorySizeIndex] += elapsedTime;
+            ompTimesMatrix[dotProductSizeIndex][memorySizeIndex] += elapsedTime;
 
             // attempt to scrub all levels of cache
 #pragma omp parallel default(none)                      \
@@ -1111,10 +931,10 @@ int main(int argc, char* argv[]) {
         if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
           const timespec toc = getTimePoint();
           const float elapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
-          ompTimesMatrix[tensorSizeIndex][memorySizeIndex] = elapsedTime;
+          ompTimesMatrix[dotProductSizeIndex][memorySizeIndex] = elapsedTime;
           // check the results
-          checkAnswer(correctResults, tensorResults,
-                      tensorSize, memorySize,
+          checkAnswer(correctResults, dotProductResults,
+                      dotProductSize, memorySize,
                       string("omp"));
         }
       }
@@ -1123,11 +943,11 @@ int main(int argc, char* argv[]) {
       // ===============================================================
 
       // scrub the results
-      std::fill(tensorResults.begin(),
-                tensorResults.end(),
+      std::fill(dotProductResults.begin(),
+                dotProductResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
-      checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults[0],
-                                maxNumberOfTensors * sizeof(float),
+      checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults[0],
+                                maxNumberOfDotProducts * sizeof(float),
                                 cudaMemcpyHostToDevice));
 
       // ===============================================================
@@ -1136,25 +956,25 @@ int main(int argc, char* argv[]) {
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
 
-        cudaIndependent_TimesMatrix[tensorSizeIndex][memorySizeIndex] =
+        cudaIndependent_TimesMatrix[dotProductSizeIndex][memorySizeIndex] =
           runCudaTest(CudaStyle_Independent,
                       numberOfThreadsPerBlock,
                       numberOfRepeats,
                       maxNumberOfCudaBlocks,
-                      numberOfTensors,
-                      maxNumberOfTensors,
-                      tensorSize,
+                      numberOfDotProducts,
+                      maxNumberOfDotProducts,
+                      dotProductSize,
                       memorySize,
                       correctResults,
                       clearCacheStyle,
                       dev_junkDataToClearTheCache,
                       junkDataSize,
-                      dev_tensorData_LayoutLeft_A,
-                      dev_tensorData_LayoutLeft_B,
+                      dev_dotProductData_LayoutLeft_A,
+                      dev_dotProductData_LayoutLeft_B,
                       dev_junkDataCounter,
                       &totalNumberOfRepeats,
-                      dev_tensorResults,
-                      &tensorResults);
+                      dev_dotProductResults,
+                      &dotProductResults);
 
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1167,116 +987,110 @@ int main(int argc, char* argv[]) {
       {
         const unsigned int numberOfThreadsPerBlock =
           std::min(unsigned(1024),
-                   unsigned(ceil(tensorSize / 32.)) * 32);
+                   unsigned(ceil(dotProductSize / 32.)) * 32);
 
-        cudaReduction_TimesMatrix[tensorSizeIndex][memorySizeIndex] =
+        cudaReduction_TimesMatrix[dotProductSizeIndex][memorySizeIndex] =
           runCudaTest(CudaStyle_Reduction,
                       numberOfThreadsPerBlock,
                       numberOfRepeats,
                       maxNumberOfCudaBlocks,
-                      numberOfTensors,
-                      maxNumberOfTensors,
-                      tensorSize,
+                      numberOfDotProducts,
+                      maxNumberOfDotProducts,
+                      dotProductSize,
                       memorySize,
                       correctResults,
                       clearCacheStyle,
                       dev_junkDataToClearTheCache,
                       junkDataSize,
-                      dev_tensorData_LayoutRight_A,
-                      dev_tensorData_LayoutRight_B,
+                      dev_dotProductData_LayoutRight_A,
+                      dev_dotProductData_LayoutRight_B,
                       dev_junkDataCounter,
                       &totalNumberOfRepeats,
-                      dev_tensorResults,
-                      &tensorResults);
+                      dev_dotProductResults,
+                      &dotProductResults);
 
       }
-      cudaSwitchingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+      cudaSwitchingTimesMatrix[dotProductSizeIndex][memorySizeIndex] =
         runSwitchingCudaTest(numberOfRepeats,
                              maxNumberOfCudaBlocks,
-                             numberOfTensors,
-                             maxNumberOfTensors,
-                             tensorSize,
+                             numberOfDotProducts,
+                             maxNumberOfDotProducts,
+                             dotProductSize,
                              memorySize,
                              correctResults,
                              clearCacheStyle,
                              dev_junkDataToClearTheCache,
                              junkDataSize,
-                             dev_tensorData_LayoutLeft_A,
-                             dev_tensorData_LayoutLeft_B,
-                             dev_tensorData_LayoutRight_A,
-                             dev_tensorData_LayoutRight_B,
+                             dev_dotProductData_LayoutLeft_A,
+                             dev_dotProductData_LayoutLeft_B,
+                             dev_dotProductData_LayoutRight_A,
+                             dev_dotProductData_LayoutRight_B,
                              dev_junkDataCounter,
                              &totalNumberOfRepeats,
-                             dev_tensorResults,
-                             &tensorResults);
+                             dev_dotProductResults,
+                             &dotProductResults);
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda reductions> ***********************
       // ===============================================================
-#endif
 
 #ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
       {
         typedef Kokkos::OpenMP                             DeviceType;
-        typedef Kokkos::View<float*****, Kokkos::LayoutRight,
-                             DeviceType>                   KokkosData;
-
-	const unsigned int numLeftFields = (tensorSize/1000);
-	const unsigned int numRightFields = (tensorSize/1000);
-        kokkosOmpTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+        typedef Kokkos::View<float**, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosDotProductData;
+        kokkosOmpTimesMatrix[dotProductSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
-                        KokkosData>(numberOfTensors,
+                        KokkosDotProductData>(numberOfDotProducts,
                                               numberOfRepeats,
-                                              numLeftFields,
-					      numRightFields,
+                                              dotProductSize,
                                               memorySize,
-				              tensorData_LayoutRight_A,
-                                              tensorData_LayoutRight_B,
+                                              dotProductData_LayoutRight_A,
+                                              dotProductData_LayoutRight_B,
                                               correctResults,
                                               string("Kokkos openmp"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
-                                              &tensorResults);
+                                              &dotProductResults);
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
-        typedef Kokkos::View<float*****, Kokkos::LayoutLeft,
-                             DeviceType>                   KokkosData;
-	const unsigned int numLeftFields = (tensorSize/1000);
-	const unsigned int numRightFields = (tensorSize/1000);
+        typedef Kokkos::View<float**, Kokkos::LayoutLeft,
+                             DeviceType>                   KokkosDotProductData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
-        kokkosCudaIndependentTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+        kokkosCudaIndependentTimesMatrix[dotProductSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
-                        KokkosData>(numberOfTensors,
+                        KokkosDotProductData>(numberOfDotProducts,
                                               numberOfRepeats,
-                                              numLeftFields,
-					      numRightFields,
+                                              dotProductSize,
                                               memorySize,
-                                              tensorData_LayoutRight_A,
-                                              tensorData_LayoutRight_B,
+                                              dotProductData_LayoutRight_A,
+                                              dotProductData_LayoutRight_B,
                                               correctResults,
                                               string("Kokkos cuda"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
-                                              &tensorResults);
+                                              &dotProductResults);
       }
+
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
 #endif // ENABLE_KOKKOS
 
-      tensorSizeMatrix[tensorSizeIndex][memorySizeIndex] =
-        tensorSize;
-      numberOfTensorsMatrix[tensorSizeIndex][memorySizeIndex] =
-        numberOfTensors;
-      memorySizeMatrix[tensorSizeIndex][memorySizeIndex] =
+      dotProductSizeMatrix[dotProductSizeIndex][memorySizeIndex] =
+        dotProductSize;
+      numberOfDotProductsMatrix[dotProductSizeIndex][memorySizeIndex] =
+        numberOfDotProducts;
+      memorySizeMatrix[dotProductSizeIndex][memorySizeIndex] =
         memorySize;
 
     }
@@ -1286,20 +1100,19 @@ int main(int argc, char* argv[]) {
       getElapsedTime(thisSizesTic, thisSizesToc);
     printf("completed %4u repeats of dot products of size %4u "
            "in %7.2f seconds\n", numberOfRepeats,
-           tensorSize, thisSizesElapsedTime);
+           dotProductSize, thisSizesElapsedTime);
 
-    checkCudaError(cudaFree(dev_tensorData_LayoutLeft_A));
-    checkCudaError(cudaFree(dev_tensorData_LayoutLeft_B));
-    checkCudaError(cudaFree(dev_tensorData_LayoutRight_A));
-    checkCudaError(cudaFree(dev_tensorData_LayoutRight_B));
-    checkCudaError(cudaFree(dev_tensorResults));
-  
+    checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_A));
+    checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_B));
+    checkCudaError(cudaFree(dev_dotProductData_LayoutRight_A));
+    checkCudaError(cudaFree(dev_dotProductData_LayoutRight_B));
+    checkCudaError(cudaFree(dev_dotProductResults));
+
   }
-  printf("finished, starting to write\n");
-  writeTimesMatrixToFile(tensorSizeMatrix,
-                         prefix + string("tensorSize") + suffix);
-  writeTimesMatrixToFile(numberOfTensorsMatrix,
-                         prefix + string("numberOfTensors") + suffix);
+  writeTimesMatrixToFile(dotProductSizeMatrix,
+                         prefix + string("dotProductSize") + suffix);
+  writeTimesMatrixToFile(numberOfDotProductsMatrix,
+                         prefix + string("numberOfDotProducts") + suffix);
   writeTimesMatrixToFile(memorySizeMatrix,
                          prefix + string("memorySize") + suffix);
   writeTimesMatrixToFile(serialTimesMatrix,
@@ -1348,7 +1161,7 @@ int main(int argc, char* argv[]) {
   } else {
     const size_t expectedDataCounter =
       junkDataSum * size_t(numberOfMethods) * (numberOfRepeats + 1) * numberOfMemorySizes *
-      numberOfTensorSizes;
+      numberOfDotProductSizes;
     if (junkDataCounter != expectedDataCounter) {
       fprintf(stderr, "for ClearCacheAfterEveryRepeat, invalid "
               "junkDataCounter = %zu (%e), it should be %zu (%e)\n",
@@ -1359,7 +1172,7 @@ int main(int argc, char* argv[]) {
   }
 
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
-    (numberOfRepeats + 1) * numberOfMemorySizes * numberOfTensorSizes;
+    (numberOfRepeats + 1) * numberOfMemorySizes * numberOfDotProductSizes;
   if (totalNumberOfRepeats != expectedTotalNumberOfRepeats) {
     fprintf(stderr, "invalid totalNumberOfRepeats = %u (%e), it should be "
             "%u (%e)\n",
