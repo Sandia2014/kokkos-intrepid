@@ -816,7 +816,7 @@ int main(int argc, char* argv[]) {
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 10 : 250;
+    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 1 : 250;
   const string machineName = "shadowfax";
   const string prefix = "data/ContractFieldFieldTensor_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -956,7 +956,8 @@ int main(int argc, char* argv[]) {
           tensorData_LayoutRight_B[layoutRightIndex];
       }
     }
-    vector<float> tensorResults(maxNumberOfTensors,
+    vector<float>
+    tensorResults(maxNumberOfTensors*(tensorSize/1000)*(tensorSize/1000),
                                     std::numeric_limits<float>::quiet_NaN());
 
    
@@ -1026,12 +1027,10 @@ int main(int argc, char* argv[]) {
               clearCacheStyle == ClearCacheAfterEveryRepeat) {
             tic = getTimePoint();
           }
-printf("start serial\n");
           // do the actual calculation
           contractFieldFieldTensorSerial(tensorResults,
 	  tensorData_LayoutRight_B, tensorData_LayoutRight_A, false,
 	  numberOfTensors, (tensorSize/1000), (tensorSize/1000), 10, 10, 10);
-printf("done serial\n");
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
@@ -1051,7 +1050,6 @@ printf("done serial\n");
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ********************** </do serial> ***************************
       // ===============================================================
-printf("Done serial, tensorSizeIndex: %d\n", tensorSizeIndex);
       const vector<float> correctResults = tensorResults;
       // scrub the results
       std::fill(tensorResults.begin(),
@@ -1220,7 +1218,6 @@ printf("Done serial, tensorSizeIndex: %d\n", tensorSizeIndex);
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-printf("start Kok\n");
       {
         typedef Kokkos::OpenMP                             DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutRight,
@@ -1270,7 +1267,6 @@ printf("start Kok\n");
                                               &totalNumberOfRepeats,
                                               &tensorResults);
       }
-printf("Done with Kokkos, tensorSizeIndex: %d\n", tensorSizeIndex);
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
@@ -1299,6 +1295,7 @@ printf("Done with Kokkos, tensorSizeIndex: %d\n", tensorSizeIndex);
     checkCudaError(cudaFree(dev_tensorResults));
   
   }
+  printf("finished, starting to write\n");
   writeTimesMatrixToFile(tensorSizeMatrix,
                          prefix + string("tensorSize") + suffix);
   writeTimesMatrixToFile(numberOfTensorsMatrix,
