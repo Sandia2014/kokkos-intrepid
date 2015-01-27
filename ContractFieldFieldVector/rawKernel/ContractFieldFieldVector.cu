@@ -107,7 +107,7 @@ struct ContractFieldFieldVectorFunctor {
 
 
 int main(int argc, char* argv[]) {
-  int c=1, l=1, r=10, q = 10, i = 10;
+  int c=10, l=10, r=10, q = 10, i = 10;
   const int repeats = 10;
 
   timespec tic;
