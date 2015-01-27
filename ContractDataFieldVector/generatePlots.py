@@ -12,7 +12,7 @@ import csv
 from mpl_toolkits.mplot3d import Axes3D
 from numpy import log10
 
-prefix = 'data/ContractDataDataVector_'
+prefix = 'data/ContractDataFieldVector_'
 suffix = '_clearCache_shadowfax'
 outputPrefix = 'figures/'
 
@@ -55,8 +55,8 @@ allNames.append('kokkosCudaIndependent')
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
 #makeImageFiles = False
-makeOrbitFilesForMovies = True
-#makeOrbitFilesForMovies = False
+#makeOrbitFilesForMovies = True
+makeOrbitFilesForMovies = False
 numberOfOrbitFrames = 100
 
 
@@ -378,7 +378,7 @@ fig3d = plt.figure(0)
 plt.clf()
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
-surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), (allTimes[1] / allTimes[5]), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), (allTimes[1] / allTimes[allNames.index("kokkosOmp")]), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
 plt.xlabel('log10(dotProductSize)')
 plt.ylabel('log10(memorySize)')
 ax.set_zlabel('speedup [unitless]')
