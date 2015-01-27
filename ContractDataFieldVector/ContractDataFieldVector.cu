@@ -664,7 +664,7 @@ int main(int argc, char* argv[]) {
   const unsigned int numberOfRepeats =
     (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 10 : 250;
   const string machineName = "shadowfax";
-  const string prefix = "data/ContractDataDataVector_";
+  const string prefix = "data/ContractDataFieldVector_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   // ********************** </input> ******************************
   // ===============================================================
