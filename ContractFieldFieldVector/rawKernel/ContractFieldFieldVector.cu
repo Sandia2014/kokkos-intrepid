@@ -91,19 +91,19 @@ struct ContractFieldFieldVectorFunctor {
   // Parallelize over c-loop
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
-
-    for (int lbf = 0; lbf < _numLeftFields; lbf++) {
-      for (int rbf = 0; rbf < _numRightFields; rbf++) {
-        double tmpVal = 0;
-        for (int qp = 0; qp < _numPoints; qp++) {
-          for (int iVec = 0; iVec < _dimVec; iVec++) {
-            tmpVal += _leftInput(elementIndex, lbf, qp, iVec)*
-                      _rightInput(elementIndex,rbf,qp, iVec);
-          } //D-loop
-        } // P-loop
-        _output(elementIndex, lbf, rbf) = tmpVal;
-      } // R-loop
-    } // L-loop
+  int cellNum = elementIndex / (_numLeftFields*_numRightFields);
+  int fieldsIndex = elementIndex % (_numLeftFields*_numRightFields);
+  int leftFieldNum = fieldsIndex / _numRightFields;
+  int rightFieldNum = fieldsIndex % _numRightFields;
+  
+  double tmpVal = 0;
+  for (int qp = 0; qp < _numPoints; qp++) {
+    for (int iVec = 0; iVec < _dimVec; iVec++) {
+      tmpVal += _leftInput(cellNum, leftFieldNum, qp, iVec)*_rightInput(cellNum,rightFieldNum,qp, iVec);
+    } //D-loop
+  } // P-loop
+  
+  _output(cellNum, leftFieldNum, rightFieldNum) = tmpVal; 
   }
 };
 
@@ -182,19 +182,18 @@ int main(int argc, char* argv[]) {
   Kokkos::deep_copy(d_inputLeft, h_inputLeft);
   Kokkos::deep_copy(d_inputRight, h_inputRight);
   Kokkos::deep_copy(d_output, h_output);
-
-
+ 
   ContractFieldFieldVectorFunctor<Kokkos::Cuda, dev_input_t, dev_input_t, dev_output_t>
   kokkosFunctor(d_inputLeft, d_inputRight, d_output, c, l, r, q, i);
 
   for (int i = 0; i < repeats; i++) {
-    Kokkos::parallel_for(c, kokkosFunctor);
+    Kokkos::parallel_for(c*l*r, kokkosFunctor);
     Kokkos::fence();
   }
 
   clock_gettime(CLOCK_MONOTONIC, &tic);
   for (int i = 0; i < repeats; i++) {
-    Kokkos::parallel_for(c, kokkosFunctor);
+    Kokkos::parallel_for(c*l*r, kokkosFunctor);
     Kokkos::fence();
   }
   clock_gettime(CLOCK_MONOTONIC, &toc);
