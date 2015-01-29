@@ -41,12 +41,15 @@ int c, int l, int r, int q, int i) {
   for (int cl = 0; cl < c; cl++) {
     for (int lbf = 0; lbf < l; lbf++) {
       for (int rbf = 0; rbf < r; rbf++) {
+      	//std::cerr <<"new tempval"<<std::endl;
         double tmpVal = 0;
         for (int qp = 0; qp < q; qp++) {
           for (int iVec = 0; iVec < i; iVec++) {
+	   // std::cerr << "adding " << leftInput[cl*l*q*i + lbf*q*i + qp*i + iVec] * rightInput[cl*r*q*i + rbf*q*i + qp*i + iVec] << " To rempval";
             tmpVal += leftInput[cl*l*q*i+lbf*q*i+qp*i+iVec]*rightInput[cl*r*q*i+rbf*q*i+qp*i+iVec];
           } //D-loop
         } // P-loop
+	//std::cerr << "writing tempval to " << cl*l*r +lbf*r + rbf << std::endl;
         output[cl*l*r+lbf*r+rbf] = tmpVal;
       } // R-loop
     } // L-loop
@@ -107,7 +110,7 @@ struct ContractFieldFieldVectorFunctor {
 
 
 int main(int argc, char* argv[]) {
-  int c=10, l=10, r=10, q = 10, i = 10;
+  int c=10000, l=10, r=10, q = 10, i = 10;
   const int repeats = 10;
 
   timespec tic;
@@ -134,16 +137,21 @@ int main(int argc, char* argv[]) {
 
 
   for (int cl = 0; cl < c; ++cl) {
-    for (int qp = 0; qp < q; ++qp) {
-      for(int ivec = 0; ivec < i; ++ivec){
-        for(int rbf = 0; rbf < r; ++rbf) {
+    for(int rbf = 0; rbf < r; ++rbf){
+      for(int qp = 0; qp < q; ++qp){
+      	for(int ivec = 0; ivec < i; ++ivec){
           double tmp1 = (double)std::rand();
+	  //std::cerr << "Left val = " << tmp1 << std::endl;
           rightInput[cl * q * i * r + rbf * q * i + qp * i + ivec] = tmp1;
           h_inputRight(cl, rbf, qp, ivec) = tmp1;
         }
-
-        for(int lbf = 0; lbf < l; ++lbf) {
+      }
+    }
+    for(int lbf = 0; lbf < l; ++lbf) {
+      for(int qp = 0; qp < q; ++qp) {
+      	for(int ivec = 0; ivec < i; ++ivec){ 
           double tmp2 = (double)std::rand();
+	  //std::cerr << "Right val = " << tmp2 << std::endl;
           leftInput[cl * q * i * l + lbf * q * i + qp * i + ivec] = tmp2;
           h_inputLeft(cl, lbf, qp, ivec) = tmp2;
         }
@@ -162,7 +170,7 @@ int main(int argc, char* argv[]) {
 
 
   clock_gettime(CLOCK_MONOTONIC, &tic);
-  for (int i = 0; i < repeats; i++) {
+  for (int reps = 0; reps < repeats; reps++) {
     serial(leftInput, rightInput, serialOutput, c, l, r,q,i);
   }
   clock_gettime(CLOCK_MONOTONIC, &toc);
@@ -202,8 +210,13 @@ int main(int argc, char* argv[]) {
       if ((abs(err) - 1) > 1.0e-6) {
         std::cerr << "output mismatch at" << cl*l*r+lbf*r+rbf << std::endl;
         std::cerr << "Serial is" << serialOutput[cl*l*r + lbf*r + rbf] << "kokkos is" << h_output(cl,lbf,rbf) << std::endl;
+     
+      }
+      else{
+	//std::cerr << "correct at"<< cl*l*r + lbf*r + rbf << std::endl;
       }
       }
+
   }
   }
   std::cout << "kokkos cuda time: " << elapsedTime_kokkosCuda << std::endl;
