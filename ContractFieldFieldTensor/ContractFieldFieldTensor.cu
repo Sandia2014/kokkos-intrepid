@@ -44,7 +44,7 @@ double getElapsedTime(const timespec start, const timespec end) {
 
 
 double random_double() {
-    return (double) rand();
+    return ((double) rand())/RAND_MAX;
 }
 
 
@@ -229,7 +229,7 @@ void contractFieldFieldTensorKokkos(output_host_t& outHost,
 
 int main(int argc, char* argv[]) {
     // Changing these variables changes the problem size
-    int c=1000, p=10, l=100, r=100, t1=10, t2=10;
+    int c=1550, p=10, l=40, r=40, t1=10, t2=10;
 
     // These are indices into the arrays and should not be
     // changed unless you change the order of the indices
@@ -238,9 +238,9 @@ int main(int argc, char* argv[]) {
     int cROff = r*p*t1*t2;
     int basisOff = p*t1*t2;
     int pLOff = t1*t2;
-    int pROff = t1*t2*r;
-    int tROff = t2*r;
-    int t2ROff = r;
+    int pROff = t1*t2;
+    int tROff = t2;
+    int t2ROff = 1;
     int tOff = t2;
 
     double * in_c_l_p_t1_t2 = new double[c*l*p*t1*t2];
@@ -374,10 +374,10 @@ int main(int argc, char* argv[]) {
 		for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
 		    for(int rbf = 0; rbf < r; ++rbf) {
 			cuda_hostRight(cl, qp, iTens1, iTens2, rbf) =
-			    in_c_r_p_t1_t2[cl*cROff + rbf + qp*pROff + 
+			    in_c_r_p_t1_t2[cl*cROff + rbf*basisOff + qp*pROff + 
 			    iTens1*tROff + iTens2*t2ROff];
 			omp_hostRight(cl, qp, iTens1, iTens2, rbf) =
-			    in_c_r_p_t1_t2[cl*cROff + rbf + qp*pROff + 
+			    in_c_r_p_t1_t2[cl*cROff + rbf*basisOff + qp*pROff + 
 			    iTens1*tROff + iTens2*t2ROff];
 		    }
 		    for(int lbf = 0; lbf < l; ++lbf) {
@@ -407,6 +407,7 @@ int main(int argc, char* argv[]) {
 		cuda_hostLeft, cuda_hostRight, cuda_kokkosOut, cuda_kokkosLeft,
 		cuda_kokkosRight, c, l, r, p, t1, t2, &elapsedTime_kokkos_cuda_nocopy);
 
+    clock_gettime(CLOCK_MONOTONIC, &toc);
 
     contractFieldFieldTensorKokkos<Kokkos::OpenMP, omp_input_view_t,
 	omp_output_view_t, omp_input_host_t, omp_output_host_t>(omp_hostOut,
@@ -415,45 +416,44 @@ int main(int argc, char* argv[]) {
 
 
 
-    clock_gettime(CLOCK_MONOTONIC, &toc);
 
 
     // This can be used if you want to include copying times
     // Commented out so that the compiler doesn't give a warning
     double elapsedTime_kokkos_cuda_copy = getElapsedTime(tic, toc);
 
-
-    /*
+    
     // This is made to check for correctness, but it is off still because
     // doing 1000 double operations throws off the correctness and I haven't
     // found a good way to calculate the epsilon that the two doubles
     // should be within
-    for (int i = 0; i < c; c++) {
-    for (int j = 0; j < l; j++) {
-    for (int k = 0; k < r; k++) {
-    double diff = cuda_hostOut(i, j, k) - out1_c_l_r[i*l*r +
-    j*r + k];
-    if (diff < 0) {
-    diff = -diff;
+    for (int i = 0; i < c; i++) {
+	for (int j = 0; j < l; j++) {
+	    for (int k = 0; k < r; k++) {
+		double diff = cuda_hostOut(i, j, k) - out1_c_l_r[i*l*r +
+		    j*r + k];
+		if (diff < 0) {
+		    diff = -diff;
+		}
+		double frac = cuda_hostOut(i, j, k)/100;
+		if (frac < 0) {
+		    frac = -frac;
+		}
+		if (diff > frac) {
+		    std::cout << "we have a problem" << std::endl;
+		    std::cout << i << " " << j << " " << k << std::endl;
+		    std::cout << "serial num " << out1_c_l_r[i*l*r +j*r +k] <<
+			std::endl;
+		    std::cout << "para num " << cuda_hostOut(i, j, k) <<
+			std::endl;
+		    Kokkos::finalize();
+		    return 0;
+		}
+	    }
+	}
     }
-    double frac = cuda_hostOut(i, j, k)/100;
-    if (frac < 0) {
-    frac = -frac;
-    }
-    if (diff > frac) {
-    std::cout << "we have a problem" << std::endl;
-    std::cout << i << " " << j << " " << k << std::endl;
-    std::cout << "serial num " << out1_c_l_r[i*l*r +j*r +k] <<
-    std::endl;
-    std::cout << "para num " << cuda_hostOut(i, j, k) <<
-    std::endl;
-    Kokkos::finalize();
-    return 0;
-    }
-    }
-    }
-    }
-     */
+
+    
     std::cout << "kokkos runtime of " << elapsedTime_kokkos_cuda_nocopy << std::endl;
     std::cout << "speed up of " <<
 	elapsedTime_serial/elapsedTime_kokkos_cuda_nocopy << std::endl;
