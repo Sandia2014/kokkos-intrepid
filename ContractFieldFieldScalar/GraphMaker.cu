@@ -432,10 +432,10 @@ struct contractFieldFieldScalarKokkosCudaFunctor {
 			int numLeftFields,
 			int numRightFields,
 			int numPoints) :
-		_numCells(numCells),
 		_leftFields(leftFields),
 		_rightFields(rightFields),
 		_outputFields(outputFields),
+		_numCells(numCells),
 		_numPoints(numPoints),
 		_numLeftFields(numLeftFields),
 		_numRightFields(numRightFields)
@@ -453,11 +453,11 @@ struct contractFieldFieldScalarKokkosCudaFunctor {
 		int matrixRow = matrixIndex / _numRightFields;
 		int matrixCol = matrixIndex % _numRightFields;
 
-		double temp = 0;
+		float temp = 0;
 		for (int qp = 0; qp < _numPoints; qp++) {
 		    temp += _leftFields(myMatrix, qp, matrixRow) * _rightFields(myMatrix, qp, matrixCol);
 		}
-		_outputFields(matrixIndex, matrixRow, matrixCol) = temp;
+		_outputFields(myMatrix, matrixRow, matrixCol) = temp;
 	    }
 };
 
@@ -528,8 +528,8 @@ double
 runKokkosTest(const unsigned int numberOfContractions,
               const unsigned int numberOfRepeats,
               const unsigned int contractionSize,
-	      const int numLeftFields,
-	      const int numRightFields,
+	      const unsigned int numLeftFields,
+	      const unsigned int numRightFields,
               const unsigned int memorySize,
               const vector<float> & contractionData_LayoutRight_Right,
               const vector<float> & contractionData_LayoutRight_Left,
@@ -544,14 +544,17 @@ runKokkosTest(const unsigned int numberOfContractions,
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
   typedef typename KokkosContractionData::HostMirror     KokkosContractionData_Host;
-  typedef Kokkos::View<float***, DeviceType>              KokkosContractionResults;
+  typedef Kokkos::View<float***, Kokkos::LayoutRight, 
+	DeviceType>              KokkosContractionResults;
   typedef typename KokkosContractionResults::HostMirror  KokkosContractionResults_Host;
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
-  const int numPoints = contractionSize;
+  const unsigned int numPoints = contractionSize;
 
-  KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
+    
+
+    KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
                                                   numberOfContractions,
 						  numPoints,
                                                   numRightFields);
@@ -579,18 +582,17 @@ runKokkosTest(const unsigned int numberOfContractions,
 
 
 
-
 	for (int cl = 0; cl < numberOfContractions; ++cl) {
 	    for (int qp = 0; qp < numPoints; ++qp) {
 		for(int rbf = 0; rbf < numRightFields; ++rbf) {
 		    kokkosContractionData_Right(cl, qp, rbf) =
-		    contractionData_LayoutRight_Right[cl*numRightFields*numPoints +
-		    rbf*numPoints + qp];
+		    contractionData_LayoutRight_Right.at(cl*numRightFields*numPoints
+		    + rbf*numPoints + qp);
 		}
 		for(int lbf = 0; lbf < numLeftFields; ++lbf) {
 		    kokkosContractionData_Left(cl, qp, lbf) =
-		    contractionData_LayoutRight_Left[cl*numLeftFields*numPoints +
-		    lbf*numPoints + qp];
+		    contractionData_LayoutRight_Left.at(cl*numLeftFields*numPoints +
+		    lbf*numPoints + qp);
 		}
 	    }
 	}
@@ -626,6 +628,7 @@ runKokkosTest(const unsigned int numberOfContractions,
                            KokkosJunkVector>
     kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
 
+
   // breaking formatting convention because holy freak that's long
   contractFieldFieldScalarKokkosCudaFunctor<DeviceType,
                             KokkosContractionData,
@@ -657,6 +660,7 @@ runKokkosTest(const unsigned int numberOfContractions,
     // wait for this repeat's results to finish
     Kokkos::fence();
 
+
     if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
       const timespec toc = getTimePoint();
       const float elapsedTime = getElapsedTime(tic, toc);
@@ -674,7 +678,6 @@ runKokkosTest(const unsigned int numberOfContractions,
     totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
   }
   // copy over the results from the device to the host
-
   Kokkos::deep_copy(kokkosContractionResults, dev_kokkosContractionResults);
   for (unsigned int contractionIndex = 0;
 	  contractionIndex < numberOfContractions; ++contractionIndex) {
@@ -685,9 +688,10 @@ runKokkosTest(const unsigned int numberOfContractions,
 	  }
       }
   }
+  
   // check the results
   checkAnswer(correctResults, *contractionResults,
-              contractionSize, memorySize,
+              numberOfContractions*numLeftFields*numRightFields, memorySize,
               kokkosFlavor);
   // scrub the results
   std::fill(contractionResults->begin(),
@@ -703,7 +707,7 @@ runKokkosTest(const unsigned int numberOfContractions,
 
 
 
-void contractFieldFieldScalarSerial(vector<float> outputFields, // c, l, r
+void contractFieldFieldScalarSerial(vector<float> & outputFields, // c, l, r
 		const vector<float> &            leftFields,  // c, l ,p
 		const vector<float> &           rightFields,  // c, r, p
     int                  numCells,
@@ -712,21 +716,21 @@ void contractFieldFieldScalarSerial(vector<float> outputFields, // c, l, r
     int                  numPoints) {
 
     float  tmpVal;
-	for (int cl = 0; cl < numCells; cl++) {
-		for (int lbf = 0; lbf < numLeftFields; lbf++) {
-			for (int rbf = 0; rbf < numRightFields; rbf++) {
-				tmpVal = 0;
-				for (int qp = 0; qp < numPoints; qp++) {
-					tmpVal += leftFields.at(cl *
-					numLeftFields * numPoints + lbf *
-					numPoints + qp)
-                  * rightFields.at(cl * numPoints * numRightFields + rbf * numPoints + qp);
-				} // P-loop
-				outputFields.at(cl * numLeftFields *
-				numRightFields + lbf * numRightFields + rbf) = tmpVal;
-			} // R-loop
-		} // L-loop
-	} // C-loop
+    for (int cl = 0; cl < numCells; cl++) {
+	for (int lbf = 0; lbf < numLeftFields; lbf++) {
+	    for (int rbf = 0; rbf < numRightFields; rbf++) {
+		tmpVal = 0;
+		for (int qp = 0; qp < numPoints; qp++) {
+		    tmpVal += leftFields.at(cl*numLeftFields*numPoints +
+		    lbf*numPoints + qp)
+			* rightFields.at(cl*numPoints*numRightFields +
+			rbf*numPoints + qp);
+		} // P-loop
+		outputFields.at(cl*numLeftFields*numRightFields +
+		lbf*numRightFields + rbf) = tmpVal;
+	    } // R-loop
+	} // L-loop
+    } // C-loop
 }
 
 int main(int argc, char* argv[]) {
@@ -739,14 +743,14 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{8, 16}};//, //32, 64, 128, 512, 1024, 2048}};
+    {{8, 16, 32, 64, 128, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
-  const unsigned int numberOfMemorySizes = 20;
+  const unsigned int numberOfMemorySizes = 2;
   //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 1 : 250;
+    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 5 : 250;
   const string machineName = "shadowfax";
   const string prefix = "data/ArrayOfContractions_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -862,7 +866,7 @@ int main(int argc, char* argv[]) {
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
     const unsigned int maxNumberOfContractions =
-      memorySizes.back() / 4 / sizeof(float) / contractionSize/ numBasis;
+      memorySizes.back() / 4 / sizeof(float) / (contractionSize * numBasis);
     vector<float> contractionData_LayoutRight_Right(maxNumberOfContractions *
     contractionSize * numBasis);
     vector<float> contractionData_LayoutRight_Left(contractionData_LayoutRight_Right.size());
@@ -890,7 +894,7 @@ int main(int argc, char* argv[]) {
     contractionResults(maxNumberOfContractions*numBasis*numBasis,
                                     std::numeric_limits<float>::quiet_NaN());
 
-
+    #if 0
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
     float * dev_contractionData_LayoutRight_Right;
@@ -938,6 +942,7 @@ int main(int argc, char* argv[]) {
                               maxNumberOfContractions * contractionSize *
 			      numBasis * sizeof(float),
                               cudaMemcpyHostToDevice));
+    #endif
 
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
@@ -945,7 +950,7 @@ int main(int argc, char* argv[]) {
          ++memorySizeIndex) {
       const unsigned int memorySize = memorySizes[memorySizeIndex];
       const unsigned int numberOfContractions =
-        memorySize / 4 / sizeof(float) / contractionSize / numBasis;
+        memorySize / 4 / sizeof(float) / (contractionSize * numBasis);
 	/*
       if (memorySize != 4 * sizeof(float) * numberOfContractions * contractionSize) {
         fprintf(stderr, "invalid memory size of %u for dot product size of "
@@ -960,7 +965,6 @@ int main(int argc, char* argv[]) {
       // ********************** < do serial> ***************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
       {
-	printf("serial\n");
         timespec tic;
         for (unsigned int repeatIndex = 0;
              repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
@@ -1163,7 +1167,6 @@ int main(int argc, char* argv[]) {
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
       {
-      printf("kok omp\n");
         typedef Kokkos::OpenMP                             DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosContractionData;
@@ -1186,7 +1189,6 @@ int main(int argc, char* argv[]) {
                                               &contractionResults);
       }
       {
-      printf("kok cuda\n");
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosContractionData;
@@ -1231,11 +1233,13 @@ int main(int argc, char* argv[]) {
            "in %7.2f seconds\n", numberOfRepeats,
            contractionSize, thisSizesElapsedTime);
 
+    /*
     checkCudaError(cudaFree(dev_contractionData_LayoutLeft_Right));
     checkCudaError(cudaFree(dev_contractionData_LayoutLeft_Left));
     checkCudaError(cudaFree(dev_contractionData_LayoutRight_Right));
     checkCudaError(cudaFree(dev_contractionData_LayoutRight_Left));
     checkCudaError(cudaFree(dev_contractionResults));
+    */
 
   }
   writeTimesMatrixToFile(contractionSizeMatrix,
@@ -1262,9 +1266,9 @@ int main(int argc, char* argv[]) {
 #endif
 
 #ifdef ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 7;
+  //const unsigned int numberOfMethods = 7;
 #else
-  const unsigned int numberOfMethods = 5;
+  //const unsigned int numberOfMethods = 5;
 #endif
 
   const size_t junkDataSum =
@@ -1288,6 +1292,7 @@ int main(int argc, char* argv[]) {
       exit(1);
     }
   } else {
+  /*
     const size_t expectedDataCounter =
       junkDataSum * size_t(numberOfMethods) * (numberOfRepeats + 1) * numberOfMemorySizes *
       numberOfContractionSizes;
@@ -1298,7 +1303,9 @@ int main(int argc, char* argv[]) {
               expectedDataCounter, float(expectedDataCounter));
       exit(1);
     }
+    */
   }
+
 /*
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
     (numberOfRepeats + 1) * numberOfMemorySizes * numberOfContractionSizes;
