@@ -527,8 +527,9 @@ struct contractFieldFieldTensorFunctor {
 
 };
 
-
-
+int test = 0;
+int biggestCell = 0;
+int bigLeft = 0;
 
 
 template <class DeviceType, class InputViewType>
@@ -537,6 +538,9 @@ runKokkosTest(const unsigned int numCells,
               const unsigned int numberOfRepeats,
               const unsigned int numLeftFields,
 	      const unsigned int numRightFields,
+	      const int numPoints,
+	      const int tens1,
+	      const int tens2,
               const unsigned int memorySize,
               const vector<float> & tensorData_LayoutRight_A,
               const vector<float> & tensorData_LayoutRight_B,
@@ -556,7 +560,20 @@ runKokkosTest(const unsigned int numCells,
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
-    int p=10, t1=10, t2=10;
+    if (test == 0 && numLeftFields*numRightFields*numPoints*tens1*tens2 >= 30000) {
+    printf("numcells: %d\nMemorySize: %d", numCells, memorySize);
+    test++;
+    }
+
+    if (numCells > biggestCell) {
+	biggestCell = numCells;
+    }
+
+    if (numLeftFields > bigLeft) {
+	bigLeft = numLeftFields;
+    }
+    
+    int p=numPoints, t1=tens1, t2=tens2;
 
     // These are indices into the arrays and should not be
     // changed unless you change the order of the indices
@@ -565,9 +582,9 @@ runKokkosTest(const unsigned int numCells,
     int cROff = numRightFields*p*t1*t2;
     int basisOff = p*t1*t2;
     int pLOff = t1*t2;
-    int pROff = t1*t2*numRightFields;
-    int tROff = t2*numRightFields;
-    int t2ROff = numRightFields;
+    int pROff = t1*t2;
+    int tROff = t2;
+    int t2ROff = 1;
     int tOff = t2;
 
   InputViewType dev_kokkosData_Right("kokkos data A",
@@ -621,7 +638,7 @@ runKokkosTest(const unsigned int numCells,
 		for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
 		    for(int rbf = 0; rbf < numRightFields; ++rbf) {
 			kokkosData_Right(cl, qp, iTens1, iTens2, rbf) =
-			    tensorData_LayoutRight_A[cl*cROff + rbf + qp*pROff + 
+			    tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff + 
 			    iTens1*tROff + iTens2*t2ROff];
 		    }
 		    for(int lbf = 0; lbf < numLeftFields; ++lbf) {
@@ -697,19 +714,30 @@ runKokkosTest(const unsigned int numCells,
     const timespec toc = getTimePoint();
     totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
   }
-  /*
+  
   // copy over the results from the device to the host
   Kokkos::deep_copy(kokkosResults, dev_kokkosResults);
+  /*
   for (unsigned int tensorIndex = 0;
-       tensorIndex < numberOfTensors; ++tensorIndex) {
-    tensorResults->at(tensorIndex) =
-      kokkosTensorResults(tensorIndex);
+       tensorIndex < numCells; ++tensorIndex) {
+    results->at(tensorIndex) =
+      kokkosResults(tensorIndex);
+  }
+  */
+
+  for (int i = 0; i < numCells; i++) {
+    for (int j = 0; j < numLeftFields; j++) {
+	for (int k = 0; k < numRightFields; k++) {
+	    results->at(i*numLeftFields*numRightFields + j*numRightFields + k) =
+	    kokkosResults(i, j, k);
+	}
+    }
   }
   // check the results
-  checkAnswer(correctResults, *tensorResults,
-              tensorSize, memorySize,
+  checkAnswer(correctResults, *results,
+              numCells*numLeftFields*numRightFields, memorySize,
               kokkosFlavor);
-  */
+  
 
   // scrub the results
   std::fill(results->begin(),
@@ -722,9 +750,9 @@ runKokkosTest(const unsigned int numCells,
 
 
 
-void contractFieldFieldTensorSerial(vector<float> outputFields,
-                                    vector<float>   leftFields,
-                                    vector<float>  rightFields,
+void contractFieldFieldTensorSerial(vector<float> & outputFields,
+                                    vector<float> &  leftFields,
+                                    vector<float> & rightFields,
                                     const bool sumInto,
 				    int numCells,
 				    int numLeftFields,
@@ -809,7 +837,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{1000, 4000, 40000}};
+    {{10000, 20000, 40000}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1014,6 +1042,12 @@ int main(int argc, char* argv[]) {
         exit(1);
       }
 
+      const int tens1 = 10;
+      const int tens2 = 10;
+      int remain = tensorSize/(tens1*tens2);
+      const int numPoints = sqrt(remain);
+      const int numLeftFields = sqrt(remain);
+      const int numRightFields = sqrt(remain);
       // ===============================================================
       // ********************** < do serial> ***************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1030,7 +1064,7 @@ int main(int argc, char* argv[]) {
           // do the actual calculation
           contractFieldFieldTensorSerial(tensorResults,
 	  tensorData_LayoutRight_B, tensorData_LayoutRight_A, false,
-	  numberOfTensors, (tensorSize/1000), (tensorSize/1000), 10, 10, 10);
+	  numberOfTensors, numLeftFields, numRightFields, numPoints, tens1, tens2);
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
@@ -1223,14 +1257,15 @@ int main(int argc, char* argv[]) {
         typedef Kokkos::View<float*****, Kokkos::LayoutRight,
                              DeviceType>                   KokkosData;
 
-	const unsigned int numLeftFields = (tensorSize/1000);
-	const unsigned int numRightFields = (tensorSize/1000);
         kokkosOmpTimesMatrix[tensorSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
                         KokkosData>(numberOfTensors,
                                               numberOfRepeats,
                                               numLeftFields,
 					      numRightFields,
+					      numPoints,
+					      tens1,
+					      tens2,
                                               memorySize,
 				              tensorData_LayoutRight_A,
                                               tensorData_LayoutRight_B,
@@ -1246,8 +1281,6 @@ int main(int argc, char* argv[]) {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosData;
-	const unsigned int numLeftFields = (tensorSize/1000);
-	const unsigned int numRightFields = (tensorSize/1000);
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
         kokkosCudaIndependentTimesMatrix[tensorSizeIndex][memorySizeIndex] =
@@ -1256,6 +1289,9 @@ int main(int argc, char* argv[]) {
                                               numberOfRepeats,
                                               numLeftFields,
 					      numRightFields,
+					      numPoints,
+					      tens1,
+					      tens2,
                                               memorySize,
                                               tensorData_LayoutRight_A,
                                               tensorData_LayoutRight_B,
@@ -1325,6 +1361,8 @@ int main(int argc, char* argv[]) {
   const unsigned int numberOfMethods = 5;
 #endif
 
+  printf("done writing\n");
+
   const size_t junkDataSum =
     std::accumulate(junkDataToClearTheCache.begin(),
                     junkDataToClearTheCache.end(), size_t(0));
@@ -1346,9 +1384,11 @@ int main(int argc, char* argv[]) {
       exit(1);
     }
   } else {
+  /*
     const size_t expectedDataCounter =
       junkDataSum * size_t(numberOfMethods) * (numberOfRepeats + 1) * numberOfMemorySizes *
       numberOfTensorSizes;
+      
     if (junkDataCounter != expectedDataCounter) {
       fprintf(stderr, "for ClearCacheAfterEveryRepeat, invalid "
               "junkDataCounter = %zu (%e), it should be %zu (%e)\n",
@@ -1356,8 +1396,9 @@ int main(int argc, char* argv[]) {
               expectedDataCounter, float(expectedDataCounter));
       exit(1);
     }
+    */
   }
-
+    printf("Biggest cell size: %d\nBiggest left/right: %d", biggestCell, bigLeft);
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
     (numberOfRepeats + 1) * numberOfMemorySizes * numberOfTensorSizes;
   if (totalNumberOfRepeats != expectedTotalNumberOfRepeats) {
@@ -1365,6 +1406,10 @@ int main(int argc, char* argv[]) {
             "%u (%e)\n",
             totalNumberOfRepeats, float(totalNumberOfRepeats),
             expectedTotalNumberOfRepeats, float(expectedTotalNumberOfRepeats));
+
+#ifdef ENABLE_KOKKOS
+  Kokkos::finalize();
+#endif
     exit(1);
   }
 
