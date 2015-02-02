@@ -18,11 +18,11 @@ outputPrefix = 'figures/'
 
 # read in all of the data.  
 # TODO: you'll need to disable everything that's not relevant here or it'll be angry about missing files
-dotProductSize = numpy.loadtxt(open(prefix + 'dotProductSize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+dotProductSize = numpy.loadtxt(open(prefix + 'contractionSize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 memorySize = numpy.loadtxt(open(prefix + 'memorySize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 numberOfDotProducts = numpy.loadtxt(open(prefix + 'numberOfDotProducts' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 serialTimes = numpy.loadtxt(open(prefix + 'serialTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-#ompTimes = numpy.loadtxt(open(prefix + 'ompTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+ompTimes = numpy.loadtxt(open(prefix + 'ompTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 #cudaIndependentTimes = numpy.loadtxt(open(prefix + 'cudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 #cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 #cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
@@ -37,8 +37,8 @@ allNames = []
 allTimes.append(serialTimes)
 allNames.append('serial')
 # NOTE: if you are doing comparisons against omp time, it's assumed that the second entry in allTimes is openmp.  if you aren't doing those comparisons, you should go disable that portion of this script.
-#allTimes.append(ompTimes)
-#allNames.append('omp')
+allTimes.append(ompTimes)
+allNames.append('omp')
 # NOTE: if you are doing comparisons against cuda time, it's assumed that the third entry in allTimes is cuda.  if you aren't doing those comparisons, you should go disable that portion of this script.
 #allTimes.append(cudaIndependentTimes)
 #allNames.append('cudaIndependent')
@@ -80,13 +80,13 @@ fig3d = plt.figure(0)
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
 surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(numberOfDotProducts), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
-plt.xlabel('log10(dotProductSize)')
+plt.xlabel('log10(numPoints)')
 plt.ylabel('log10(memorySize)')
-ax.set_zlabel('log10(numberOfDotProducts)')
-plt.title('number of dot products')
+ax.set_zlabel('log10(numCells)')
+plt.title('number of cells')
 if (makeImageFiles == True):
   ax.view_init(elev=2, azim=-23)
-  filename = outputPrefix + 'NumberOfDotProducts' + suffix
+  filename = outputPrefix + 'numCells' + suffix
   plt.savefig(filename + '.pdf')
   print 'saved file to %s' % filename
 else:
@@ -112,7 +112,7 @@ for timesIndex in range(len(allTimes)):
   ax.view_init(elev=0, azim=-111)
   surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(dotProductSize)')
+  plt.xlabel('log10(numPoints)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(raw time) [seconds]')
   ax.set_zlim([minValue, maxValue])
@@ -137,7 +137,7 @@ for memorySizeIndex in [-1, 0]:
   plt.xscale('log')
   plt.yscale('log')
   plt.title('raw times for memory size %.2e' % memorySize[0, memorySizeIndex], fontsize=16)
-  plt.xlabel('dot product size', fontsize=16)
+  plt.xlabel('number of points', fontsize=16)
   plt.ylabel('raw time [seconds]', fontsize=16)
   plt.xlim([dotProductSize[0, 0], dotProductSize[-1, 0]])
   ax2d.legend(legendNames, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
@@ -166,7 +166,7 @@ for timesIndex in range(len(allTimes)):
   ax.view_init(elev=0, azim=-111)
   surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(times / memorySize), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(dotProductSize)')
+  plt.xlabel('log10(numPoints)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(normalized time [seconds / memorySize])')
   ax.set_zlim([minValue, maxValue])
@@ -204,7 +204,7 @@ for timesIndex in numpy.arange(1, len(allTimes)):
   ax.view_init(elev=0, azim=-111)
   surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(allTimes[0] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(dotProductSize)')
+  plt.xlabel('log10(numPoints)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(speedup) [unitless]')
   ax.set_zlim([minSpeedup, maxSpeedup])
@@ -234,7 +234,7 @@ for memorySizeIndex in [-1, 0]:
   plt.xscale('log')
   plt.yscale('log')
   plt.title('speedup over serial for memory size %.2e' % memorySize[0, memorySizeIndex], fontsize=16)
-  plt.xlabel('dot product size', fontsize=16)
+  plt.xlabel('number of points', fontsize=16)
   plt.ylabel('speedup [unitless]', fontsize=16)
   #plt.ylim([0, 6])
   plt.xlim([dotProductSize[0, 0], dotProductSize[-1, 0]])
