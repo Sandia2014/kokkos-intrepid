@@ -770,15 +770,19 @@ int main(int argc, char* argv[]) {
 
   // for each dot product size
   for (unsigned int contractionSizeIndex = 0;
-       contractionSizeIndex < numberOfContractions;
+       contractionSizeIndex < numberOfContractionSizes;
        ++contractionSizeIndex) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
+    
+    const unsigned int q = pow(contractionSize, 1/3);
+    const unsigned int d1 = q;
+    const unsigned int d2 = q;
     const timespec thisSizesTic = getTimePoint();
 
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
     const unsigned int maxNumberOfContractions =
-      memorySizes.back().at(contrctionSizeIndex) / 4 / sizeof(float) / contractionSize;
+      memorySizes.back().at(contractionSizeIndex) / 4 / sizeof(float) / contractionSize;
     vector<float> contractionData_LayoutRight_A(maxNumberOfContractions * l * contractionSize);
     vector<float> contractionData_LayoutRight_B(maxNumberOfContractions * contractionSize);
     vector<float> contractionData_LayoutLeft_A(contractionData_LayoutRight_A.size());
@@ -865,12 +869,12 @@ int main(int argc, char* argv[]) {
          ++memorySizeIndex) {
       const unsigned int memorySize = memorySizes[memorySizeIndex].at(contractionSizeIndex);
       const unsigned int numCells =
-       memorySize / 4 / sizeof(float) / contractionSize;
-      if (memorySize != numCells * cellSize) {
+       memorySize / (2*sizeof(float)*contractionSize+2*sizeof(float)*l*contractionSize);
+      if (memorySize != numCells * (2*sizeof(float)*contractionSize + 2*sizeof(float)*l*contractionSize)) {
         fprintf(stderr, "invalid memory size of %u for dot product size of "
                 "%u because it doesn't divide evenly, remainder is %zu\n",
                 memorySize, contractionSize,
-                memorySize % (cellSize));
+                memorySize % (4 * sizeof(float) * contractionSize));
         exit(1);
       }
 
