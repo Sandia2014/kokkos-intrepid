@@ -437,7 +437,7 @@ private:
 
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
 struct KokkosFunctor_Independent {
-  
+
   typedef DeviceType device_type;
   LeftViewType _leftInput;
   RightViewType _rightInput;
@@ -649,51 +649,56 @@ int main(int argc, char* argv[]) {
   // ===============================================================
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-  const vector<unsigned int> dotProductSizes =
-    {{8, 16, 32, 64, 128, 256, 512, 1024, 2048}};
+  const vector<unsigned int> contractionSizes =
+    {{8, 27, 64, 125, 216, 343, 512, 729, 1000}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const unsigned int l = 8;
-  const unsigned int q = 8;
-  const unsigned int d1 = 8;
+
   unsigned int cellSize;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
     (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 10 : 250;
   const string machineName = "shadowfax";
-  const string prefix = "data/ArrayOfDotProducts_";
+  const string prefix = "data/ArrayOfContractions_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   // ********************** </input> ******************************
   // ===============================================================
 
   // derive some values from the inputs
-  const unsigned int numberOfDotProductSizes = dotProductSizes.size();
+  const unsigned int numberOfContractionSizes = contractionSizes.size();
   const string clearCacheStyleString =
     (clearCacheStyle == ClearCacheAfterEveryRepeat) ? "clearCache" :
     "dontClearCache";
   const string suffix = "_" + clearCacheStyleString + "_" + machineName;
 
   // create the actual sizes
-  vector<unsigned int> memorySizes(numberOfMemorySizes);
+  vector<vector <unsigned int>> memorySizes(numberOfMemorySizes,
+                                          vector<unsigned int>(numberOfContractionSizes, 0));
   for (unsigned int memorySizeIndex = 0;
        memorySizeIndex < numberOfMemorySizes; ++memorySizeIndex) {
     const float percent = memorySizeIndex / float(numberOfMemorySizes - 1);
     const float minLog = log10(memorySizeExtrema[0]);
     const float maxLog = log10(memorySizeExtrema[1]);
     const float thisLog = minLog + percent * (maxLog - minLog);
-    const unsigned int maxDotProductSize = dotProductSizes.back();
+    const unsigned int maxContractionSize = contractionSizes.back();
     // memory size is linear on a log scale, but rounded to a multiple of the
     //  largest dot product size
     const unsigned int desiredMemorySizeInBytes = pow(10., thisLog);
     // now, in this amount of memory i have to fit two vectors of data
     // that are multiples of the max dot product size
-    cellSize = 2*l*maxDotProductSize*sizeof(float) + 2*maxDotProductSize*sizeof(float);
-    const unsigned int memorySizeInBytes =
-      unsigned(desiredMemorySizeInBytes /
+    for(unsigned int contractionIndex = 0; contractionIndex < numberOfContractionSizes;
+        ++contractionIndex){
+
+          cellSize = 2*l*(contractionSizes[contractionIndex])*sizeof(float)
+                    + 2*contractionSizes[contractionIndex]*sizeof(float);
+          const unsigned int memorySizeInBytes =
+          unsigned(desiredMemorySizeInBytes /
                cellSize) * cellSize;
-    memorySizes[memorySizeIndex] = memorySizeInBytes;
+          (memorySizes[memorySizeIndex]).at(contractionIndex) = memorySizeInBytes;
+   }
   }
 
   // create a c++11 random number generator
@@ -704,35 +709,35 @@ int main(int argc, char* argv[]) {
   // i feel a little dirty using a vector<vector>, but i don't want to introduce
   //  a dependence on eigen or something for a real matrix.
   vector<vector<float> >
-    dotProductSizeMatrix(numberOfDotProductSizes,
+    contractionSizeMatrix(numberOfContractionSizes,
                          vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    numberOfDotProductsMatrix(numberOfDotProductSizes,
+    numberOfContractionsMatrix(numberOfContractionSizes,
                               vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    memorySizeMatrix(numberOfDotProductSizes,
+    memorySizeMatrix(numberOfContractionSizes,
                      vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    serialTimesMatrix(numberOfDotProductSizes,
+    serialTimesMatrix(numberOfContractionSizes,
                       vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    ompTimesMatrix(numberOfDotProductSizes,
+    ompTimesMatrix(numberOfContractionSizes,
                    vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    cudaIndependent_TimesMatrix(numberOfDotProductSizes,
+    cudaIndependent_TimesMatrix(numberOfContractionSizes,
                                 vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    cudaReduction_TimesMatrix(numberOfDotProductSizes,
+    cudaReduction_TimesMatrix(numberOfContractionSizes,
                               vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    cudaSwitchingTimesMatrix(numberOfDotProductSizes,
+    cudaSwitchingTimesMatrix(numberOfContractionSizes,
                              vector<float>(numberOfMemorySizes, 0));
 #ifdef ENABLE_KOKKOS
   vector<vector<float> >
-    kokkosOmpTimesMatrix(numberOfDotProductSizes,
+    kokkosOmpTimesMatrix(numberOfContractionSizes,
                          vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    kokkosCudaIndependentTimesMatrix(numberOfDotProductSizes,
+    kokkosCudaIndependentTimesMatrix(numberOfContractionSizes,
                                      vector<float>(numberOfMemorySizes, 0));
 #endif
 
@@ -764,105 +769,112 @@ int main(int argc, char* argv[]) {
   unsigned int totalNumberOfRepeats = 0;
 
   // for each dot product size
-  for (unsigned int dotProductSizeIndex = 0;
-       dotProductSizeIndex < numberOfDotProductSizes;
-       ++dotProductSizeIndex) {
-    const unsigned int dotProductSize = dotProductSizes[dotProductSizeIndex];
-    const unsigned int d2 = dotProductSize / q / d1;
-
-
+  for (unsigned int contractionSizeIndex = 0;
+       contractionSizeIndex < numberOfContractionSizes;
+       ++contractionSizeIndex) {
+    const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
+    
+    const unsigned int q = pow(contractionSize, 1/3);
+    const unsigned int d1 = q;
+    const unsigned int d2 = q;
     const timespec thisSizesTic = getTimePoint();
 
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
-    const unsigned int maxNumberOfDotProducts =
-      memorySizes.back() / 4 / sizeof(float) / dotProductSize;
-    vector<float> dotProductData_LayoutRight_A(maxNumberOfDotProducts * l * dotProductSize);
-    vector<float> dotProductData_LayoutRight_B(maxNumberOfDotProducts * dotProductSize);
-    vector<float> dotProductData_LayoutLeft_A(dotProductData_LayoutRight_A.size());
-    vector<float> dotProductData_LayoutLeft_B(dotProductData_LayoutRight_B.size());
-    for (unsigned int dotProductIndex = 0;
-         dotProductIndex < maxNumberOfDotProducts; ++dotProductIndex) {
+    const unsigned int maxNumberOfContractions =
+      memorySizes.back().at(contractionSizeIndex) / 4 / sizeof(float) / contractionSize;
+    vector<float> contractionData_LayoutRight_A(maxNumberOfContractions * l * contractionSize);
+    vector<float> contractionData_LayoutRight_B(maxNumberOfContractions * contractionSize);
+    vector<float> contractionData_LayoutLeft_A(contractionData_LayoutRight_A.size());
+    vector<float> contractionData_LayoutLeft_B(contractionData_LayoutRight_B.size());
 
+    for (unsigned int contractionIndex = 0;
+         contractionIndex < maxNumberOfContractions; ++contractionIndex) {
       for (unsigned int entryIndex = 0;
-           entryIndex < dotProductSize; ++entryIndex) {
+           entryIndex < contractionSize; ++entryIndex) {
 
-        const unsigned int layoutRightIndex =
-          dotProductIndex * dotProductSize + entryIndex;
+        const unsigned int layoutRightIndex_B =
+          contractionIndex * contractionSize + entryIndex;
 
-        dotProductData_LayoutRight_A[layoutRightIndex] =
+        const unsigned int layoutLeftIndex_B =
+          entryIndex * contractionSize + contractionIndex;
+
+        contractionData_LayoutRight_B[layoutRightIndex_B] =
           randomNumberGenerator(randomNumberEngine);
 
-        dotProductData_LayoutRight_B[layoutRightIndex] =
+        contractionData_LayoutLeft_B[layoutLeftIndex_B] =
           randomNumberGenerator(randomNumberEngine);
 
         for(unsigned int lbf = 0; lbf < l; ++lbf) {
 
-        const unsigned int layoutLeftIndex =
-          entryIndex * maxNumberOfDotProducts * l + lbf * dotProductSize + dotProductIndex;
+          const unsigned int layoutRightIndex_A =
+          contractionIndex * contractionSize * l + lbf * contractionSize + entryIndex;
 
-        dotProductData_LayoutLeft_A[layoutLeftIndex] =
-          dotProductData_LayoutRight_A[layoutRightIndex];
+          const unsigned int layoutLeftIndex_A =
+          entryIndex * contractionSize * l + lbf * contractionSize + contractionIndex;
 
-        dotProductData_LayoutLeft_B[layoutLeftIndex] =
-          dotProductData_LayoutRight_B[layoutRightIndex];
+          contractionData_LayoutRight_A[layoutRightIndex_A] =
+            randomNumberGenerator(randomNumberEngine);
+
+          contractionData_LayoutLeft_A[layoutLeftIndex_A] =
+            randomNumberGenerator(randomNumberEngine);
         }
       }
     }
-    vector<float> dotProductResults(maxNumberOfDotProducts*l,
+    vector<float> contractionResults(maxNumberOfContractions*l,
                                     std::numeric_limits<float>::quiet_NaN());
 
 
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
-    float * dev_dotProductData_LayoutRight_A;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutRight_A,
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutRight_A,
-                              &dotProductData_LayoutRight_A[0],
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
+    float * dev_contractionData_LayoutRight_A;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_LayoutRight_A,
+                              maxNumberOfContractions * contractionSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_contractionData_LayoutRight_A,
+                              &contractionData_LayoutRight_A[0],
+                              maxNumberOfContractions * contractionSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-    float * dev_dotProductData_LayoutRight_B;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutRight_B,
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutRight_B,
-                              &dotProductData_LayoutRight_B[0],
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
+    float * dev_contractionData_LayoutRight_B;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_LayoutRight_B,
+                              maxNumberOfContractions * contractionSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_contractionData_LayoutRight_B,
+                              &contractionData_LayoutRight_B[0],
+                              maxNumberOfContractions * contractionSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-    float * dev_dotProductResults;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductResults,
-                              maxNumberOfDotProducts * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults[0],
-                              maxNumberOfDotProducts * sizeof(float),
+    float * dev_contractionResults;
+    checkCudaError(cudaMalloc((void **) &dev_contractionResults,
+                              maxNumberOfContractions * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults[0],
+                              maxNumberOfContractions * sizeof(float),
                               cudaMemcpyHostToDevice));
     // make and populate the LayoutLeft versions
-    float * dev_dotProductData_LayoutLeft_A;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutLeft_A,
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutLeft_A,
-                              &dotProductData_LayoutLeft_A[0],
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
+    float * dev_contractionData_LayoutLeft_A;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_LayoutLeft_A,
+                              maxNumberOfContractions * contractionSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_contractionData_LayoutLeft_A,
+                              &contractionData_LayoutLeft_A[0],
+                              maxNumberOfContractions * contractionSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-    float * dev_dotProductData_LayoutLeft_B;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutLeft_B,
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutLeft_B,
-                              &dotProductData_LayoutLeft_B[0],
-                              maxNumberOfDotProducts * dotProductSize * sizeof(float),
+    float * dev_contractionData_LayoutLeft_B;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_LayoutLeft_B,
+                              maxNumberOfContractions * contractionSize * sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_contractionData_LayoutLeft_B,
+                              &contractionData_LayoutLeft_B[0],
+                              maxNumberOfContractions * contractionSize * sizeof(float),
                               cudaMemcpyHostToDevice));
 
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
          memorySizeIndex < numberOfMemorySizes;
          ++memorySizeIndex) {
-      const unsigned int memorySize = memorySizes[memorySizeIndex];
+      const unsigned int memorySize = memorySizes[memorySizeIndex].at(contractionSizeIndex);
       const unsigned int numCells =
-       memorySize / cellSize;
-      if (memorySize != numCells * cellSize) {
+       memorySize / (2*sizeof(float)*contractionSize+2*sizeof(float)*l*contractionSize);
+      if (memorySize != numCells * (2*sizeof(float)*contractionSize + 2*sizeof(float)*l*contractionSize)) {
         fprintf(stderr, "invalid memory size of %u for dot product size of "
                 "%u because it doesn't divide evenly, remainder is %zu\n",
-                memorySize, dotProductSize,
-                memorySize % (cellSize));
+                memorySize, contractionSize,
+                memorySize % (4 * sizeof(float) * contractionSize));
         exit(1);
       }
 
@@ -886,19 +898,19 @@ int main(int argc, char* argv[]) {
               for (int qp = 0; qp < q; qp++) {
                 for (int iTens1 = 0; iTens1 < d1; iTens1++) {
                   for (int iTens2 =0; iTens2 < d2; iTens2++) {
-                    tmpVal += dotProductData_LayoutRight_A[cl*l*q*d1*d2+lbf*q*d1*d2+qp*d1*d2+iTens1*d2+iTens2] *
-                    dotProductData_LayoutRight_B[cl*q*d1*d2+qp*d1*d2+iTens1*d2+iTens2];
+                    tmpVal += contractionData_LayoutRight_A[cl*l*q*d1*d2+lbf*q*d1*d2+qp*d1*d2+iTens1*d2+iTens2] *
+                    contractionData_LayoutRight_B[cl*q*d1*d2+qp*d1*d2+iTens1*d2+iTens2];
                   } // D2-loop
                 } // D1-loop
               } // P-loop
-              dotProductResults[cl*l+ lbf] = tmpVal;
+              contractionResults[cl*l+ lbf] = tmpVal;
             } // F-loop
           } // C-loop
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
-            serialTimesMatrix[dotProductSizeIndex][memorySizeIndex] += elapsedTime;
+            serialTimesMatrix[contractionSizeIndex][memorySizeIndex] += elapsedTime;
 
             junkDataCounter +=
               std::accumulate(junkDataToClearTheCache.begin(),
@@ -908,24 +920,24 @@ int main(int argc, char* argv[]) {
         if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
           const timespec toc = getTimePoint();
           const float elapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
-          serialTimesMatrix[dotProductSizeIndex][memorySizeIndex] = elapsedTime;
+          serialTimesMatrix[contractionSizeIndex][memorySizeIndex] = elapsedTime;
         }
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ********************** </do serial> ***************************
       // ===============================================================
 
-      const vector<float> correctResults = dotProductResults;
+      const vector<float> correctResults = contractionResults;
       // scrub the results
-      std::fill(dotProductResults.begin(),
-                dotProductResults.end(),
+      std::fill(contractionResults.begin(),
+                contractionResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
 
       // ===============================================================
       // ********************** < do omp> ******************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
      /*  {
-        
+
         timespec tic;
         for (unsigned int repeatIndex = 0;
              repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
@@ -1106,16 +1118,16 @@ int main(int argc, char* argv[]) {
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutLeft,
-                             DeviceType>                   KokkosDotProductData_Left;
+                             DeviceType>                   KokkosContractionData_Left;
 
         typedef Kokkos::View<float****, Kokkos::LayoutLeft,
-                             DeviceType>                   KokkosDotProductData_Right;
+                             DeviceType>                   KokkosContractionData_Right;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
-        kokkosCudaIndependentTimesMatrix[dotProductSizeIndex][memorySizeIndex] =
+        kokkosCudaIndependentTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
-                        KokkosDotProductData_Left,
-                        KokkosDotProductData_Right>(cellSize,
+                        KokkosContractionData_Left,
+                        KokkosContractionData_Right>(cellSize,
 			                      numberOfRepeats,
                                               memorySize,
                                               numCells,
@@ -1123,15 +1135,15 @@ int main(int argc, char* argv[]) {
                                               q,
                                               d1,
                                               d2,
-                                              dotProductData_LayoutRight_A,
-                                              dotProductData_LayoutRight_B,
+                                              contractionData_LayoutRight_A,
+                                              contractionData_LayoutRight_B,
                                               correctResults,
                                               string("Kokkos cuda"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
-                                              &dotProductResults);
+                                              &contractionResults);
       }
 
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1139,11 +1151,11 @@ int main(int argc, char* argv[]) {
       // ===============================================================
 #endif // ENABLE_KOKKOS
 
-      dotProductSizeMatrix[dotProductSizeIndex][memorySizeIndex] =
-        dotProductSize;
-      numberOfDotProductsMatrix[dotProductSizeIndex][memorySizeIndex] =
+      contractionSizeMatrix[contractionSizeIndex][memorySizeIndex] =
+        contractionSize;
+      numberOfContractionsMatrix[contractionSizeIndex][memorySizeIndex] =
         numCells;
-      memorySizeMatrix[dotProductSizeIndex][memorySizeIndex] =
+      memorySizeMatrix[contractionSizeIndex][memorySizeIndex] =
         memorySize;
 
     }
@@ -1153,19 +1165,19 @@ int main(int argc, char* argv[]) {
       getElapsedTime(thisSizesTic, thisSizesToc);
     printf("completed %4u repeats of dot products of size %4u "
            "in %7.2f seconds\n", numberOfRepeats,
-           dotProductSize, thisSizesElapsedTime);
+           contractionSize, thisSizesElapsedTime);
 
-    checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_A));
-    checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_B));
-    checkCudaError(cudaFree(dev_dotProductData_LayoutRight_A));
-    checkCudaError(cudaFree(dev_dotProductData_LayoutRight_B));
-    checkCudaError(cudaFree(dev_dotProductResults));
+    checkCudaError(cudaFree(dev_contractionData_LayoutLeft_A));
+    checkCudaError(cudaFree(dev_contractionData_LayoutLeft_B));
+    checkCudaError(cudaFree(dev_contractionData_LayoutRight_A));
+    checkCudaError(cudaFree(dev_contractionData_LayoutRight_B));
+    checkCudaError(cudaFree(dev_contractionResults));
 
   }
-  writeTimesMatrixToFile(dotProductSizeMatrix,
-                         prefix + string("dotProductSize") + suffix);
-  writeTimesMatrixToFile(numberOfDotProductsMatrix,
-                         prefix + string("numberOfDotProducts") + suffix);
+  writeTimesMatrixToFile(contractionSizeMatrix,
+                         prefix + string("contractionSize") + suffix);
+  writeTimesMatrixToFile(numberOfContractionsMatrix,
+                         prefix + string("numberOfContractions") + suffix);
   writeTimesMatrixToFile(memorySizeMatrix,
                          prefix + string("memorySize") + suffix);
   writeTimesMatrixToFile(serialTimesMatrix,
@@ -1214,7 +1226,7 @@ int main(int argc, char* argv[]) {
   } else {
     const size_t expectedDataCounter =
       junkDataSum * size_t(numberOfMethods) * (numberOfRepeats + 1) * numberOfMemorySizes *
-      numberOfDotProductSizes;
+      numberOfContractionSizes;
     if (junkDataCounter != expectedDataCounter) {
       fprintf(stderr, "for ClearCacheAfterEveryRepeat, invalid "
               "junkDataCounter = %zu (%e), it should be %zu (%e)\n",
@@ -1225,7 +1237,7 @@ int main(int argc, char* argv[]) {
   }
 
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
-    (numberOfRepeats + 1) * numberOfMemorySizes * numberOfDotProductSizes;
+    (numberOfRepeats + 1) * numberOfMemorySizes * numberOfContractionSizes;
   if (totalNumberOfRepeats != expectedTotalNumberOfRepeats) {
     fprintf(stderr, "invalid totalNumberOfRepeats = %u (%e), it should be "
             "%u (%e)\n",
