@@ -905,10 +905,11 @@ int main(int argc, char* argv[]) {
                 double tmpVal = 0;
                 for (int qp = 0; qp < q; qp++) {
                   for (int iVec = 0; iVec < i; iVec++) {
-                    tmpVal += leftInput[cl*l*q*i+lbf*q*i+qp*i+iVec]*rightInput[cl*r*q*i+rbf*q*i+qp*i+iVec];
+                    tmpVal += contractionData_LayoutRight_A[cl*l*q*i+lbf*q*i+qp*i+iVec]
+		    		*contractionData_LayoutRight_B[cl*r*q*i+rbf*q*i+qp*i+iVec];
                   } //D-loop
                 } // P-loop
-                output[cl*l*r+lbf*r+rbf] = tmpVal;
+                contractionResults[cl*l*r+lbf*r+rbf] = tmpVal;
               } // R-loop
             } // L-loop
           }
@@ -1123,10 +1124,10 @@ int main(int argc, char* argv[]) {
       } */
       {
         typedef Kokkos::Cuda                               DeviceType;
-        typedef Kokkos::View<float***, Kokkos::LayoutLeft,
+        typedef Kokkos::View<float****, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosContractionData_Left;
 
-        typedef Kokkos::View<float***, Kokkos::LayoutLeft,
+        typedef Kokkos::View<float****, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosContractionData_Right;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
