@@ -442,28 +442,28 @@ struct KokkosFunctor_Independent {
   LeftViewType _leftInput;
   RightViewType _rightInput;
   OutputViewType _output;
-  int _c;
-  int _l;
-  int _q;
-  int _d1;
-  int _d2;
+  int _numCells;
+  int _numPoints;
+  int _numLeftFields;
+  int _numRightFields;
+  int _dimVec;
 
   KokkosFunctor_Independent(LeftViewType leftInput,
   RightViewType rightInput,
   OutputViewType output,
   int c,
   int l,
+  int r,
   int q,
-  int d1,
-  int d2) :
+  int i) :
   _leftInput(leftInput),
   _rightInput(rightInput),
   _output(output),
-  _c(c),
-  _l(l),
-  _q(q),
-  _d1(d1),
-  _d2(d2)
+  _numCells(c),
+  _numPoints(q),
+  _numLeftFields(l),
+  _numRightFields(r),
+  _dimVec(i)
   {
     // Nothing to do
   }
@@ -471,18 +471,19 @@ struct KokkosFunctor_Independent {
   // Parallelize over c-loop
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
-    for (int lbf = 0; lbf < _l; lbf++) {
-      double tmpVal = 0;
-      for (int qp = 0; qp < _q; qp++) {
-        for (int iTens1 = 0; iTens1 < _d1; iTens1++) {
-          for (int iTens2 =0; iTens2 < _d2; iTens2++) {
-            tmpVal += _leftInput(elementIndex, lbf,qp,iTens1,iTens2) *
-            _rightInput(elementIndex, qp, iTens1, iTens2);
-          } // D2-loop
-        } // D1-loop
-      } // P-loop
-      _output(elementIndex, lbf) = tmpVal;
-    } // F-loop
+    int cellNum = elementIndex / (_numLeftFields*_numRightFields);
+    int fieldsIndex = elementIndex % (_numLeftFields*_numRightFields);
+    int leftFieldNum = fieldsIndex / _numRightFields;
+    int rightFieldNum = fieldsIndex % _numRightFields;
+
+    double tmpVal = 0;
+    for (int qp = 0; qp < _numPoints; qp++) {
+      for (int iVec = 0; iVec < _dimVec; iVec++) {
+        tmpVal += _leftInput(cellNum, leftFieldNum, qp, iVec)*_rightInput(cellNum,rightFieldNum,qp, iVec);
+      } //D-loop
+    } // P-loop
+
+    _output(cellNum, leftFieldNum, rightFieldNum) = tmpVal;
   }
 };
 
@@ -493,9 +494,9 @@ runKokkosTest(const unsigned int cellSize,
               const unsigned int memorySize,
               const unsigned int numCells,
               const unsigned int l,
+              const unsigned int r,
               const unsigned int q,
-              const unsigned int d1,
-              const unsigned int d2,
+              const unsigned int i,
               const vector<float> & dotProductData_LayoutRight_A,
               const vector<float> & dotProductData_LayoutRight_B,
               const vector<float> & correctResults,
@@ -511,27 +512,27 @@ runKokkosTest(const unsigned int cellSize,
   typedef typename KokkosDotProductData_Left::HostMirror     KokkosDotProductData_Host_Left;
   typedef typename KokkosDotProductData_Right::HostMirror     KokkosDotProductData_Host_Right;
 
-  typedef Kokkos::View<float**, DeviceType>              KokkosDotProductResults;
+  typedef Kokkos::View<float***, DeviceType>              KokkosDotProductResults;
   typedef typename KokkosDotProductResults::HostMirror  KokkosDotProductResults_Host;
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
   KokkosDotProductData_Left dev_kokkosDotProductData_A("kokkos data A",
                                                   numCells,
-                                                  l, q, d1, d2);
+                                                  l, q, i);
   KokkosDotProductData_Host_Left kokkosDotProductData_A =
     Kokkos::create_mirror_view(dev_kokkosDotProductData_A);
 
   KokkosDotProductData_Right dev_kokkosDotProductData_B("kokkos data B",
                                                   numCells,
+                                                  r,
                                                   q,
-                                                  d1,
-                                                  d2);
+                                                  i);
   KokkosDotProductData_Host_Right kokkosDotProductData_B =
     Kokkos::create_mirror_view(dev_kokkosDotProductData_B);
 
   KokkosDotProductResults dev_kokkosDotProductResults("kokkos dot product results",
-                                                      numCells,l);
+                                                      numCells,l, r);
   KokkosDotProductResults_Host kokkosDotProductResults =
     Kokkos::create_mirror_view(dev_kokkosDotProductResults);
 
@@ -544,15 +545,15 @@ runKokkosTest(const unsigned int cellSize,
   for (unsigned int dotProductIndex = 0;
        dotProductIndex < numCells; ++dotProductIndex) {
     for (unsigned int lbf = 0; lbf < l; ++lbf) {
-      for(unsigned int qp = 0; qp < q; ++qp) {
-        for(unsigned int iTens1 = 0; iTens1 < d1; ++iTens1) {
-          for(unsigned int iTens2 = 0; iTens2 < d2; ++iTens2) {
-            kokkosDotProductData_A(dotProductIndex, lbf, qp, iTens1, iTens2) =
-            dotProductData_LayoutRight_A[dotProductIndex * l * q * d1 * d2 +
-            lbf * q * d1 * d2 + qp * d1 * d2 + iTens1 * d2 + iTens2];
-            kokkosDotProductData_B(dotProductIndex, qp, iTens1, iTens2) =
-            dotProductData_LayoutRight_B[dotProductIndex * q * d1 * d2 +
-            qp * d1 * d2 + iTens1 * d2 + iTens2];
+      for(unsigned int rbf = 0; rbf < r; ++rbf) {
+        for(unsigned int qp = 0; qp < q; ++qp) {
+          for(unsigned int iVec = 0; iVec < i; ++iVec) {
+            kokkosDotProductData_A(dotProductIndex, lbf, qp, iVec) =
+            dotProductData_LayoutRight_A[dotProductIndex * l * q * i +
+            lbf * q * i + qp * i + iVec];
+            kokkosDotProductData_B(dotProductIndex, rbf, qp, iVec) =
+            dotProductData_LayoutRight_B[dotProductIndex * r * q * i +
+            rbf * q * i + qp * i + iVec];
           }
         }
       }
@@ -579,7 +580,7 @@ runKokkosTest(const unsigned int cellSize,
     kokkosFunctor_Independent(dev_kokkosDotProductData_A,
     dev_kokkosDotProductData_B,
     dev_kokkosDotProductResults,
-    numCells, l, q, d1, d2);
+    numCells, l, r,q, i);
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -593,7 +594,7 @@ runKokkosTest(const unsigned int cellSize,
     }
 
     // actually do the calculation
-    Kokkos::parallel_for(numCells, kokkosFunctor_Independent);
+    Kokkos::parallel_for(numCells*r*l, kokkosFunctor_Independent);
 
     // wait for this repeat's results to finish
     Kokkos::fence();
@@ -619,8 +620,10 @@ runKokkosTest(const unsigned int cellSize,
   for (unsigned int dotProductIndex = 0;
        dotProductIndex < numCells; ++dotProductIndex) {
          for(unsigned int lbf = 0; lbf < l; ++lbf) {
-    dotProductResults->at(dotProductIndex*l+ lbf) =
-      kokkosDotProductResults(dotProductIndex, lbf);
+           for(unsigned int rbf = 0; rbf < r; ++rbf) {
+             dotProductResults->at(dotProductIndex*l*r+ lbf*r + rbf) =
+             kokkosDotProductResults(dotProductIndex, lbf, rbf);
+        }
     }
   }
   // check the results
@@ -650,11 +653,12 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{8, 27, 64, 125, 216, 343, 512, 729, 1000}};
+    {{16, 25, 49, 144, 225, 361, 529, 729, 961}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const unsigned int l = 8;
+  const unsigned int r = 8;
 
   unsigned int cellSize;
   const ClearCacheStyle clearCacheStyle =
@@ -693,7 +697,7 @@ int main(int argc, char* argv[]) {
         ++contractionIndex){
 
           cellSize = 2*l*(contractionSizes[contractionIndex])*sizeof(float)
-                    + 2*contractionSizes[contractionIndex]*sizeof(float);
+                    + 2*r*(contractionSizes[contractionIndex])*sizeof(float);
           const unsigned int memorySizeInBytes =
           unsigned(desiredMemorySizeInBytes /
                cellSize) * cellSize;
@@ -773,10 +777,9 @@ int main(int argc, char* argv[]) {
        contractionSizeIndex < numberOfContractionSizes;
        ++contractionSizeIndex) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
-    
-    const unsigned int q = pow(contractionSize, 1/3);
-    const unsigned int d1 = q;
-    const unsigned int d2 = q;
+
+    const unsigned int q = pow(contractionSize, 1/2);
+    const unsigned int i = q;
     const timespec thisSizesTic = getTimePoint();
 
     // allocate and initialize the largest amount of memory we'll need, then on
@@ -784,7 +787,7 @@ int main(int argc, char* argv[]) {
     const unsigned int maxNumberOfContractions =
       memorySizes.back().at(contractionSizeIndex) / 4 / sizeof(float) / contractionSize;
     vector<float> contractionData_LayoutRight_A(maxNumberOfContractions * l * contractionSize);
-    vector<float> contractionData_LayoutRight_B(maxNumberOfContractions * contractionSize);
+    vector<float> contractionData_LayoutRight_B(maxNumberOfContractions * r * contractionSize);
     vector<float> contractionData_LayoutLeft_A(contractionData_LayoutRight_A.size());
     vector<float> contractionData_LayoutLeft_B(contractionData_LayoutRight_B.size());
 
@@ -793,35 +796,38 @@ int main(int argc, char* argv[]) {
       for (unsigned int entryIndex = 0;
            entryIndex < contractionSize; ++entryIndex) {
 
-        const unsigned int layoutRightIndex_B =
-          contractionIndex * contractionSize + entryIndex;
+        for (unsigned int rbf = 0; rbf < r; ++rbf) {
 
-        const unsigned int layoutLeftIndex_B =
-          entryIndex * contractionSize + contractionIndex;
+        const unsigned int layoutRightIndex_A =
+          contractionIndex * contractionSize * r + rbf * contractionSize + entryIndex;
 
-        contractionData_LayoutRight_B[layoutRightIndex_B] =
+        const unsigned int layoutLeftIndex_A =
+          entryIndex * contractionSize * r + rbf * contractionSize + contractionIndex;
+
+        contractionData_LayoutRight_A[layoutRightIndex_A] =
           randomNumberGenerator(randomNumberEngine);
 
-        contractionData_LayoutLeft_B[layoutLeftIndex_B] =
+        contractionData_LayoutLeft_A[layoutLeftIndex_A] =
           randomNumberGenerator(randomNumberEngine);
+        }
 
         for(unsigned int lbf = 0; lbf < l; ++lbf) {
 
-          const unsigned int layoutRightIndex_A =
+          const unsigned int layoutRightIndex_B =
           contractionIndex * contractionSize * l + lbf * contractionSize + entryIndex;
 
-          const unsigned int layoutLeftIndex_A =
+          const unsigned int layoutLeftIndex_B =
           entryIndex * contractionSize * l + lbf * contractionSize + contractionIndex;
 
-          contractionData_LayoutRight_A[layoutRightIndex_A] =
+          contractionData_LayoutRight_B[layoutRightIndex_B] =
             randomNumberGenerator(randomNumberEngine);
 
-          contractionData_LayoutLeft_A[layoutLeftIndex_A] =
+          contractionData_LayoutLeft_B[layoutLeftIndex_B] =
             randomNumberGenerator(randomNumberEngine);
         }
       }
     }
-    vector<float> contractionResults(maxNumberOfContractions*l,
+    vector<float> contractionResults(maxNumberOfContractions*l*r,
                                     std::numeric_limits<float>::quiet_NaN());
 
 
@@ -869,12 +875,12 @@ int main(int argc, char* argv[]) {
          ++memorySizeIndex) {
       const unsigned int memorySize = memorySizes[memorySizeIndex].at(contractionSizeIndex);
       const unsigned int numCells =
-       memorySize / (2*sizeof(float)*contractionSize+2*sizeof(float)*l*contractionSize);
-      if (memorySize != numCells * (2*sizeof(float)*contractionSize + 2*sizeof(float)*l*contractionSize)) {
+       memorySize / (2*sizeof(float)*r*contractionSize+2*sizeof(float)*l*contractionSize);
+      if (memorySize != numCells * (2*sizeof(float)*r*contractionSize+2*sizeof(float)*l*contractionSize)) {
         fprintf(stderr, "invalid memory size of %u for dot product size of "
                 "%u because it doesn't divide evenly, remainder is %zu\n",
                 memorySize, contractionSize,
-                memorySize % (4 * sizeof(float) * contractionSize));
+                memorySize % (2*sizeof(float)*r*contractionSize+2*sizeof(float)*l*contractionSize));
         exit(1);
       }
 
@@ -894,18 +900,18 @@ int main(int argc, char* argv[]) {
 
           for (int cl = 0; cl < numCells; cl++) {
             for (int lbf = 0; lbf < l; lbf++) {
-              double tmpVal = 0;
-              for (int qp = 0; qp < q; qp++) {
-                for (int iTens1 = 0; iTens1 < d1; iTens1++) {
-                  for (int iTens2 =0; iTens2 < d2; iTens2++) {
-                    tmpVal += contractionData_LayoutRight_A[cl*l*q*d1*d2+lbf*q*d1*d2+qp*d1*d2+iTens1*d2+iTens2] *
-                    contractionData_LayoutRight_B[cl*q*d1*d2+qp*d1*d2+iTens1*d2+iTens2];
-                  } // D2-loop
-                } // D1-loop
-              } // P-loop
-              contractionResults[cl*l+ lbf] = tmpVal;
-            } // F-loop
-          } // C-loop
+              for (int rbf = 0; rbf < r; rbf++) {
+
+                double tmpVal = 0;
+                for (int qp = 0; qp < q; qp++) {
+                  for (int iVec = 0; iVec < i; iVec++) {
+                    tmpVal += leftInput[cl*l*q*i+lbf*q*i+qp*i+iVec]*rightInput[cl*r*q*i+rbf*q*i+qp*i+iVec];
+                  } //D-loop
+                } // P-loop
+                output[cl*l*r+lbf*r+rbf] = tmpVal;
+              } // R-loop
+            } // L-loop
+          }
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
@@ -1117,10 +1123,10 @@ int main(int argc, char* argv[]) {
       } */
       {
         typedef Kokkos::Cuda                               DeviceType;
-        typedef Kokkos::View<float*****, Kokkos::LayoutLeft,
+        typedef Kokkos::View<float***, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosContractionData_Left;
 
-        typedef Kokkos::View<float****, Kokkos::LayoutLeft,
+        typedef Kokkos::View<float***, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosContractionData_Right;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
@@ -1128,13 +1134,13 @@ int main(int argc, char* argv[]) {
           runKokkosTest<DeviceType,
                         KokkosContractionData_Left,
                         KokkosContractionData_Right>(cellSize,
-			                      numberOfRepeats,
+			                                        numberOfRepeats,
                                               memorySize,
                                               numCells,
                                               l,
+                                              r,
                                               q,
-                                              d1,
-                                              d2,
+                                              i,
                                               contractionData_LayoutRight_A,
                                               contractionData_LayoutRight_B,
                                               correctResults,
