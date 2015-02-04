@@ -12,21 +12,21 @@ import csv
 from mpl_toolkits.mplot3d import Axes3D
 from numpy import log10
 
-prefix = 'data/ArrayOfDotProducts_'
+prefix = 'data/ArrayOfContractions_'
 suffix = '_clearCache_shadowfax'
 outputPrefix = 'figures/'
 
-# read in all of the data.
+# read in all of the data.  
 # TODO: you'll need to disable everything that's not relevant here or it'll be angry about missing files
-dotProductSize = numpy.loadtxt(open(prefix + 'dotProductSize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+contractionSize = numpy.loadtxt(open(prefix + 'contractionSize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 memorySize = numpy.loadtxt(open(prefix + 'memorySize' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-numberOfDotProducts = numpy.loadtxt(open(prefix + 'numberOfDotProducts' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+numberOfContractions = numpy.loadtxt(open(prefix + 'numberOfContractions' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 serialTimes = numpy.loadtxt(open(prefix + 'serialTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-ompTimes = numpy.loadtxt(open(prefix + 'ompTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-cudaIndependentTimes = numpy.loadtxt(open(prefix + 'cudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#ompTimes = numpy.loadtxt(open(prefix + 'ompTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#cudaIndependentTimes = numpy.loadtxt(open(prefix + 'cudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 
 # set up a list of the times and names, for easy iteration later
@@ -37,18 +37,18 @@ allNames = []
 allTimes.append(serialTimes)
 allNames.append('serial')
 # NOTE: if you are doing comparisons against omp time, it's assumed that the second entry in allTimes is openmp.  if you aren't doing those comparisons, you should go disable that portion of this script.
-allTimes.append(ompTimes)
-allNames.append('omp')
+#allTimes.append(ompTimes)
+#allNames.append('omp')
 # NOTE: if you are doing comparisons against cuda time, it's assumed that the third entry in allTimes is cuda.  if you aren't doing those comparisons, you should go disable that portion of this script.
-allTimes.append(cudaIndependentTimes)
-allNames.append('cudaIndependent')
+#allTimes.append(cudaIndependentTimes)
+#allNames.append('cudaIndependent')
 # there are no assumptions about the rest of the ordering
-allTimes.append(cudaReductionTimes)
-allNames.append('cudaReduction')
-allTimes.append(cudaSwitchingTimes)
-allNames.append('cudaSwitching')
-allTimes.append(kokkosOmpTimes)
-allNames.append('kokkosOmp')
+#allTimes.append(cudaReductionTimes)
+#allNames.append('cudaReduction')
+#allTimes.append(cudaSwitchingTimes)
+#allNames.append('cudaSwitching')
+#allTimes.append(kokkosOmpTimes)
+#allNames.append('kokkosOmp')
 allTimes.append(kokkosCudaIndependentTimes)
 allNames.append('kokkosCudaIndependent')
 
@@ -79,14 +79,14 @@ bbox_to_anchor2d = (1.87, 0.5)
 fig3d = plt.figure(0)
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
-surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(numberOfDotProducts), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
-plt.xlabel('log10(dotProductSize)')
+surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(numberOfContractions), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+plt.xlabel('log10(contractionSize)')
 plt.ylabel('log10(memorySize)')
-ax.set_zlabel('log10(numberOfDotProducts)')
-plt.title('number of dot products')
+ax.set_zlabel('log10(numberOfContractions)')
+plt.title('number of contractions')
 if (makeImageFiles == True):
   ax.view_init(elev=2, azim=-23)
-  filename = outputPrefix + 'NumberOfDotProducts' + suffix
+  filename = outputPrefix + 'NumberOfContractionss' + suffix
   plt.savefig(filename + '.pdf')
   print 'saved file to %s' % filename
 else:
@@ -110,9 +110,9 @@ for timesIndex in range(len(allTimes)):
   name = allNames[timesIndex]
   ax = fig3d.gca(projection='3d')
   ax.view_init(elev=0, azim=-111)
-  surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+  surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(dotProductSize)')
+  plt.xlabel('log10(contractionSize)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(raw time) [seconds]')
   ax.set_zlim([minValue, maxValue])
@@ -132,14 +132,14 @@ for memorySizeIndex in [-1, 0]:
   for timesIndex in range(len(allTimes)):
     times = allTimes[timesIndex]
     name = allNames[timesIndex]
-    plt.plot(dotProductSize[:, memorySizeIndex], times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
+    plt.plot(contractionSize[:, memorySizeIndex], times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
     legendNames.append(name)
   plt.xscale('log')
   plt.yscale('log')
   plt.title('raw times for memory size %.2e' % memorySize[0, memorySizeIndex], fontsize=16)
   plt.xlabel('dot product size', fontsize=16)
   plt.ylabel('raw time [seconds]', fontsize=16)
-  plt.xlim([dotProductSize[0, 0], dotProductSize[-1, 0]])
+  plt.xlim([contractionSize[0, 0], contractionSize[-1, 0]])
   ax2d.legend(legendNames, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
   if (makeImageFiles == True):
     sizeDescription = 'largestSize' if (memorySizeIndex == -1) else 'smallestSize'
@@ -164,9 +164,9 @@ for timesIndex in range(len(allTimes)):
   name = allNames[timesIndex]
   ax = fig3d.gca(projection='3d')
   ax.view_init(elev=0, azim=-111)
-  surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(times / memorySize), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+  surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(times / memorySize), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(dotProductSize)')
+  plt.xlabel('log10(contractionSize)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(normalized time [seconds / memorySize])')
   ax.set_zlim([minValue, maxValue])
@@ -202,9 +202,9 @@ for timesIndex in numpy.arange(1, len(allTimes)):
   name = allNames[timesIndex]
   ax = fig3d.gca(projection='3d')
   ax.view_init(elev=0, azim=-111)
-  surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(allTimes[0] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+  surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[0] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(dotProductSize)')
+  plt.xlabel('log10(contractionSize)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(speedup) [unitless]')
   ax.set_zlim([minSpeedup, maxSpeedup])
@@ -229,7 +229,7 @@ for memorySizeIndex in [-1, 0]:
   for timesIndex in range(len(allTimes)):
     times = allTimes[timesIndex]
     name = allNames[timesIndex]
-    plt.plot(dotProductSize[:, memorySizeIndex], allTimes[0][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
+    plt.plot(contractionSize[:, memorySizeIndex], allTimes[0][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
     legendNames.append(name)
   plt.xscale('log')
   plt.yscale('log')
@@ -237,7 +237,7 @@ for memorySizeIndex in [-1, 0]:
   plt.xlabel('dot product size', fontsize=16)
   plt.ylabel('speedup [unitless]', fontsize=16)
   #plt.ylim([0, 6])
-  plt.xlim([dotProductSize[0, 0], dotProductSize[-1, 0]])
+  plt.xlim([contractionSize[0, 0], contractionSize[-1, 0]])
   ax2d.legend(legendNames, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
   if (makeImageFiles == True):
     sizeDescription = 'largestSize' if (memorySizeIndex == -1) else 'smallestSize'
@@ -247,11 +247,10 @@ for memorySizeIndex in [-1, 0]:
   else:
     plt.show()
 
- #WE'RE NOT GOING PAST HERE FOR NOW
- sys.exit(1)
 
 # now make relative speedup over openmp
 # TODO: you might disable this part
+"""
 maxSpeedup = -10
 minSpeedup = 10
 for timesIndex in numpy.arange(2, len(allTimes)):
@@ -309,9 +308,10 @@ for memorySizeIndex in [-1, 0]:
     print 'saved file to %s' % filename
   else:
     plt.show()
-
+"""
 # relative speedup over cudaIndependent
 # TODO: you might disable this part
+"""
 maxSpeedup = -10
 minSpeedup = 10
 for timesIndex in numpy.arange(3, len(allTimes)):
@@ -370,10 +370,10 @@ for memorySizeIndex in [-1, 0]:
   else:
     plt.show()
 
-
+"""
 # these graphs are essentially duplicates of ones made already, but with a linear scale instead of logarithmic (by request of carter).
 # these graphs just compare kokkos omp versus openmp and kokkos cuda versus cuda
-
+"""
 # omp
 fig3d = plt.figure(0)
 plt.clf()
@@ -421,3 +421,4 @@ if (makeImageFiles == True):
       print 'saved file to %s' % filename
 else:
   plt.show()
+"""
