@@ -745,7 +745,7 @@ int main(int argc, char* argv[]) {
   const vector<unsigned int> contractionSizes =
     {{8, 16, 32, 64, 128, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
-  const unsigned int numberOfMemorySizes = 2;
+  const unsigned int numberOfMemorySizes = 10;
   //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
@@ -1005,7 +1005,6 @@ int main(int argc, char* argv[]) {
                 contractionResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
 
-    #if 0
       // ===============================================================
       // ********************** < do omp> ******************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1024,7 +1023,29 @@ int main(int argc, char* argv[]) {
 #pragma omp parallel for default(none)                                  \
   shared(contractionData_LayoutRight_Right, contractionData_LayoutRight_Left,    \
          contractionResults)
-          for (unsigned int contractionIndex = 0;
+	  for (unsigned int elementId = 0; elementId <
+		  numberOfContractions*numBasis*numBasis; elementId++) {
+	      int myMatrix = elementId / (numBasis*numBasis);
+	      int matrixIndex = elementId % (numBasis*numBasis);
+	      int matrixRow = matrixIndex / numBasis;
+	      int matrixCol = matrixIndex % numBasis;
+
+	      float temp = 0;
+	      int cellMult = numBasis*numPoints;
+	      int finalCell = numBasis*numBasis;
+	      for (int qp = 0; qp < numPoints; qp++) {
+		  temp += contractionData_LayoutRight_Left.at(myMatrix*cellMult +
+			  matrixRow*numPoints + qp) * 
+		      contractionData_LayoutRight_Right.at(myMatrix*cellMult +
+			      matrixCol*numPoints + qp);
+	      }
+	      contractionResults.at(myMatrix*finalCell + matrixRow*numBasis +
+		      matrixCol);
+	  }
+	
+
+	  /*
+	  for (unsigned int contractionIndex = 0;
                contractionIndex < numberOfContractions;
                ++contractionIndex) {
             const unsigned int shortcutIndex = contractionIndex * contractionSize;
@@ -1037,6 +1058,7 @@ int main(int argc, char* argv[]) {
             }
             contractionResults[contractionIndex] = sum;
           }
+	  */
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
@@ -1075,10 +1097,11 @@ int main(int argc, char* argv[]) {
       std::fill(contractionResults.begin(),
                 contractionResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
-      checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults[0],
+      /* checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults[0],
                                 maxNumberOfContractions * sizeof(float),
                                 cudaMemcpyHostToDevice));
-
+      */
+    #if 0
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
