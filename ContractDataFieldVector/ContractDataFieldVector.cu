@@ -718,7 +718,11 @@ int main(int argc, char* argv[]) {
     serialTimesMatrix(numberOfDotProductSizes,
                       vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
-    ompTimesMatrix(numberOfDotProductSizes,
+    ompUncollapsedTimesMatrix(numberOfDotProductSizes,
+                   vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    ompCollapsedTimesMatrix(numberOfDotProductSizes,
                    vector<float>(numberOfMemorySizes, 0));
 
 #ifdef RAW_CUDA
@@ -935,7 +939,7 @@ int main(int argc, char* argv[]) {
                 std::numeric_limits<float>::quiet_NaN());
 
       // ===============================================================
-      // ********************** < do omp> ******************************
+      // ********************** < do omp uncollapsed> ******************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
       {
         timespec tic;
@@ -948,7 +952,6 @@ int main(int argc, char* argv[]) {
             tic = getTimePoint();
           }
 
-// TODO: cl and lbf should probably be collapsed here like they are in Kokkos
 #pragma omp parallel for default(none)                                  \
   shared(dotProductData_LayoutRight_A, dotProductData_LayoutRight_B,    \
          dotProductResults)
@@ -974,7 +977,7 @@ int main(int argc, char* argv[]) {
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
-            ompTimesMatrix[dotProductSizeIndex][memorySizeIndex] += elapsedTime;
+            ompUncollapsedTimesMatrix[dotProductSizeIndex][memorySizeIndex] += elapsedTime;
 
             // attempt to scrub all levels of cache
 #pragma omp parallel default(none)                      \
@@ -993,15 +996,91 @@ int main(int argc, char* argv[]) {
         if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
           const timespec toc = getTimePoint();
           const float elapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
-          ompTimesMatrix[dotProductSizeIndex][memorySizeIndex] = elapsedTime;
+          ompUncollapsedTimesMatrix[dotProductSizeIndex][memorySizeIndex] = elapsedTime;
           // check the results
           checkAnswer(correctResults, dotProductResults,
                       dotProductSize, memorySize,
-                      string("omp"));
+                      string("omp uncollapsed"));
         }
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-      // ********************** </do omp> ******************************
+      // ********************** </do omp uncollapsed> ******************
+      // ===============================================================
+
+      // scrub the results
+      std::fill(dotProductResults.begin(),
+                dotProductResults.end(),
+                std::numeric_limits<float>::quiet_NaN());
+
+      // ===============================================================
+      // ********************** < do omp collapsed> ********************
+      // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+      {
+        timespec tic;
+        for (unsigned int repeatIndex = 0;
+             repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+          ++totalNumberOfRepeats;
+          if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+               repeatIndex == 1) ||
+              clearCacheStyle == ClearCacheAfterEveryRepeat) {
+            tic = getTimePoint();
+          }
+
+#pragma omp parallel for default(none)                                  \
+  shared(dotProductData_LayoutRight_A, dotProductData_LayoutRight_B,    \
+         dotProductResults)
+          for (int elementIndex = 0; elementIndex < numCells * numFields; ++elementIndex) {
+            int cl = elementIndex % numCells;
+            int lbf = elementIndex / numCells;
+
+            int clDimLeft = cl * numFields * numPoints * dimVec;
+            int clDimRight = cl * numPoints * dimVec;
+            int clDimOut = cl * numFields;
+
+            int lbfDim = lbf * numPoints * dimVec;
+
+            float tmpVal = 0;
+            for (int qp = 0; qp < _numPoints; qp++) {
+              for (int iVec = 0; iVec < _dimVec; iVec++) {
+                tmpVal += 
+                  dotProductData_LayoutRight_A[clDimLeft + lbfDim + qpDim + iVec] *
+                  dotProductData_LayoutRight_B[clDimRight + qpDim + iVec];
+              } // D-loop
+            } // P-loop
+            dotProductResults[clDimOut + lbf] = tmpVal;
+          }
+
+          if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+            const timespec toc = getTimePoint();
+            const float elapsedTime = getElapsedTime(tic, toc);
+            ompCollapsedTimesMatrix[dotProductSizeIndex][memorySizeIndex] += elapsedTime;
+
+            // attempt to scrub all levels of cache
+#pragma omp parallel default(none)                      \
+  shared(junkDataCounter, junkDataToClearTheCache)
+            {
+              const size_t thisThreadsJunkDataCounter =
+                std::accumulate(junkDataToClearTheCache.begin(),
+                                junkDataToClearTheCache.end(), size_t(0));
+              // only one thread adds the junk counter so that the total
+              //  at the end is not a function of the number of threads.
+#pragma omp single
+              junkDataCounter += thisThreadsJunkDataCounter;
+            }
+          }
+        }
+        if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+          const timespec toc = getTimePoint();
+          const float elapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+          ompCollapsedTimesMatrix[dotProductSizeIndex][memorySizeIndex] = elapsedTime;
+          // check the results
+          checkAnswer(correctResults, dotProductResults,
+                      dotProductSize, memorySize,
+                      string("omp collapsed"));
+        }
+      }
+      // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      // ********************** </do omp collapsed> ********************
       // ===============================================================
 
       // scrub the results
@@ -1192,7 +1271,9 @@ int main(int argc, char* argv[]) {
                          prefix + string("memorySize") + suffix);
   writeTimesMatrixToFile(serialTimesMatrix,
                          prefix + string("serialTimes") + suffix);
-  writeTimesMatrixToFile(ompTimesMatrix,
+  writeTimesMatrixToFile(ompUncollapsedTimesMatrix,
+                         prefix + string("ompUncollapsedTimes") + suffix);
+  writeTimesMatrixToFile(ompCollapsedTimesMatrix,
                          prefix + string("ompTimes") + suffix);
 
 
@@ -1214,11 +1295,11 @@ int main(int argc, char* argv[]) {
 
 #if defined RAW_CUDA
   // Note, we assume that if RAW_CUDA is defined so is ENABLE_KOKKOS here
-  const unsigned int numberOfMethods = 7;
+  const unsigned int numberOfMethods = 8;
 #elif defined ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 4;
+  const unsigned int numberOfMethods = 5;
 #else
-  const unsigned int numberOfMethods = 2;
+  const unsigned int numberOfMethods = 3;
 #endif
 
   const size_t junkDataSum =
