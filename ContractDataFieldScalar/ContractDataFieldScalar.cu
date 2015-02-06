@@ -1,7 +1,7 @@
 // -*- C++ -*-
 // ContractDataFieldScalar.cu
 // a huge comparison of different ways of doing ContractDataFieldScalar
-// Ellen Hui (stolen from Tyler Marklyn, Jeff Amelang)
+// Tyler Marklyn (outline stolen from Jeff Amelang), 2015
 
 // c junk
 #include <cstdio>
@@ -31,24 +31,8 @@ using std::array;
 #include <Kokkos_Core.hpp>
 #endif // ENABLE_KOKKOS
 
-enum CudaStyle {CudaStyle_Independent,
-                CudaStyle_Reduction};
-
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
-
-string
-convertCudaStyleToString(const CudaStyle cudaStyle) {
-  switch (cudaStyle) {
-  case CudaStyle_Independent:
-    return string("CudaStyle_Independent");
-  case CudaStyle_Reduction:
-    return string("CudaStyle_Reduction");
-  default:
-    fprintf(stderr, "invalid cuda style\n");
-    exit(1);
-  };
-}
 
 // stolen from http://stackoverflow.com/questions/14038589/what-is-the-canonical-way-to-check-for-errors-using-the-cuda-runtime-api
 #define checkCudaError(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -163,7 +147,7 @@ private:
 };
 
 
-template<class DeviceType, class FieldViewType, class DataViewType, class OutputViewType>
+template<class DeviceType, class DataViewType, class FieldViewType, class OutputViewType>
 struct ContractDataFieldScalarFunctor {
   typedef DeviceType device_type;
   FieldViewType _inputFields;
@@ -189,14 +173,16 @@ struct ContractDataFieldScalarFunctor {
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
-    int cl = elementIndex / _numFields;
-    int lbf = elementIndex % _numFields;
+    int cl = elementIndex;// / _numFields;
+    //int lbf = elementIndex % _numFields;
 
-    double tmpVal = 0;
-    for (int qp = 0; qp < _numPoints; qp++) {
-      tmpVal += _inputFields(cl, qp, lbf) * _inputData(cl,  qp);
+    for (int lbf = 0; lbf < _numFields; lbf ++) {
+      double tmpVal = 0;
+      for (int qp = 0; qp < _numPoints; qp++) {
+        tmpVal += _inputFields(cl, lbf, qp) * _inputData(cl,  qp);
+      }
+      _output(cl, lbf) = tmpVal;
     } // P-loop
-    _output(cl, lbf) = tmpVal;
   }
 
 private:
@@ -212,8 +198,8 @@ runKokkosTest(const unsigned int numberOfRepeats,
               const unsigned int numCells,
               const unsigned int numPoints,
               const unsigned int numFields,
-              const vector<float> & dotProductData_LayoutRight_A,
-              const vector<float> & dotProductData_LayoutRight_B,
+              const vector<float> & inputData_LayoutRight,
+              const vector<float> & inputField_LayoutRight,
               const vector<float> & correctResults,
               const string & kokkosFlavor,
               const ClearCacheStyle clearCacheStyle,
@@ -224,22 +210,23 @@ runKokkosTest(const unsigned int numberOfRepeats,
 
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
-  typedef typename KokkosInputData::HostMirror     KokkosInputData_Host;
-  typedef typename KokkosInputField::HostMirror     KokkosInputField_Host;
+  typedef typename KokkosInputField::HostMirror          KokkosInputField_Host;
+  typedef typename KokkosInputData::HostMirror          KokkosInputData_Host;
+
   typedef Kokkos::View<float**, DeviceType>              KokkosCalcResults;
-  typedef typename KokkosCalcResults::HostMirror  KokkosCalcResults_Host;
+  typedef typename KokkosCalcResults::HostMirror        KokkosCalcResults_Host;
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
-  KokkosInputField dev_kokkosInputField_A("kokkos data A",
-                                                  numCells, numPoints, numFields);
-  KokkosInputField_Host kokkosInputField_A =
-    Kokkos::create_mirror_view(dev_kokkosInputField_A);
-
-  KokkosInputData dev_kokkosInputData_B("kokkos field B",
+  KokkosInputData dev_kokkosInputData_A("kokkos data A",
                                                   numCells, numPoints);
-  KokkosInputData_Host kokkosInputData_B =
-    Kokkos::create_mirror_view(dev_kokkosInputData_B);
+  KokkosInputData_Host kokkosInputData_A =
+    Kokkos::create_mirror_view(dev_kokkosInputData_A);
+
+  KokkosInputField dev_kokkosInputField("kokkos data B",
+                                                  numCells, numFields, numPoints);
+  KokkosInputField_Host kokkosInputField =
+    Kokkos::create_mirror_view(dev_kokkosInputField);
 
   KokkosCalcResults dev_kokkosCalcResults("kokkos dot product results",
                                                       numCells, numFields);
@@ -256,17 +243,17 @@ runKokkosTest(const unsigned int numberOfRepeats,
     int clDim = cl * numPoints * numFields;
     for (int qp = 0; qp < numPoints; ++qp) {
       int qpDim = qp * numFields;
-      for (int f = 0; f < numFields; ++f) {
-          kokkosInputField_A(cl, qp, f) = 
-            dotProductData_LayoutRight_A[clDim + qpDim + f];
+          kokkosInputData_A(cl, qp) = 
+            inputData_LayoutRight[cl * numPoints + qp];
+      for (int lbf = 0; lbf < numFields; ++lbf) {
+          kokkosInputField(cl, lbf, qp) =
+            inputField_LayoutRight[cl * numPoints * numFields + lbf * numPoints + qp];
       }
-        kokkosInputData_B(cl, qp) = 
-          dotProductData_LayoutRight_B[clDim + qpDim];
     }
   }
 
-  Kokkos::deep_copy(dev_kokkosInputField_A, kokkosInputField_A);
-  Kokkos::deep_copy(dev_kokkosInputData_B, kokkosInputData_B);
+  Kokkos::deep_copy(dev_kokkosInputData_A, kokkosInputData_A);
+  Kokkos::deep_copy(dev_kokkosInputField, kokkosInputField);
 
   // copy the data into the device views and ship them over
   for (unsigned int junkDataIndex = 0;
@@ -282,13 +269,13 @@ runKokkosTest(const unsigned int numberOfRepeats,
 
   // breaking formatting convention because holy freak that's long
   ContractDataFieldScalarFunctor<DeviceType,
-                            KokkosInputField,
                             KokkosInputData,
+                            KokkosInputField,
                             KokkosCalcResults>
     contractDataFieldScalarFunctor(numPoints,
                               numFields,
-                              dev_kokkosInputField_A,
-                              dev_kokkosInputData_B,
+                              dev_kokkosInputField,
+                              dev_kokkosInputData_A,
                               dev_kokkosCalcResults);
 
   timespec tic;
@@ -303,7 +290,7 @@ runKokkosTest(const unsigned int numberOfRepeats,
     }
 
     // actually do the calculation
-    Kokkos::parallel_for(numCells * numFields, contractDataFieldScalarFunctor);
+    Kokkos::parallel_for(numCells, contractDataFieldScalarFunctor);
 
     // wait for this repeat's results to finish
     Kokkos::fence();
@@ -328,14 +315,14 @@ runKokkosTest(const unsigned int numberOfRepeats,
   Kokkos::deep_copy(kokkosCalcResults, dev_kokkosCalcResults);
   for (unsigned int dotProductIndex = 0;
        dotProductIndex < numCells; ++dotProductIndex) {
-    for (unsigned int l = 0;
-         l < numFields; ++l) {
-      calcResults->at(dotProductIndex * numFields + l) = kokkosCalcResults(dotProductIndex, l);
+    for (unsigned int lbf = 0; lbf < numFields; ++lbf) {
+      calcResults->at(dotProductIndex * numFields + lbf) =
+      kokkosCalcResults(dotProductIndex, lbf);
     }
   }
   // check the results
   checkAnswer(correctResults, *calcResults,
-              numPoints * numFields, memorySize,
+              numPoints * numFields , memorySize,
               kokkosFlavor);
 
   // scrub the results
@@ -364,12 +351,9 @@ int main(int argc, char* argv[]) {
     //{{8, 16, 32, 64, 128, 256, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
-  const unsigned int numFields = 25;
+  const unsigned int numFields = 5;
 
 
-#ifdef RAW_CUDA
-  const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
-#endif
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -431,18 +415,6 @@ int main(int argc, char* argv[]) {
     ompTimesMatrix(numberOfContractionSizes,
                    vector<float>(numberOfMemorySizes, 0));
 
-#ifdef RAW_CUDA
-  vector<vector<float> >
-    cudaIndependent_TimesMatrix(numberOfContractionSizes,
-                                vector<float>(numberOfMemorySizes, 0));
-  vector<vector<float> >
-    cudaReduction_TimesMatrix(numberOfContractionSizes,
-                              vector<float>(numberOfMemorySizes, 0));
-  vector<vector<float> >
-    cudaSwitchingTimesMatrix(numberOfContractionSizes,
-                             vector<float>(numberOfMemorySizes, 0));
-#endif
-
 #ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfContractionSizes,
@@ -460,25 +432,6 @@ int main(int argc, char* argv[]) {
     junkDataToClearTheCache[(rand() / float(RAND_MAX))*junkDataSize] = 1;
   }
 
-#ifdef RAW_CUDA
-  int * dev_junkDataToClearTheCache;
-  checkCudaError(cudaMalloc((void **) &dev_junkDataToClearTheCache,
-                            junkDataSize * sizeof(int)));
-  checkCudaError(cudaMemcpy(dev_junkDataToClearTheCache,
-                            &junkDataToClearTheCache[0],
-                            junkDataSize * sizeof(int),
-                            cudaMemcpyHostToDevice));
-  int * dev_junkDataCounter;
-  checkCudaError(cudaMalloc((void **) &dev_junkDataCounter,
-                            sizeof(int)));
-  {
-    int temp = 0;
-    checkCudaError(cudaMemcpy(dev_junkDataCounter,
-                              &temp,
-                              sizeof(int),
-                              cudaMemcpyHostToDevice));
-  }
-#endif // RAW_CUDA
 
   unsigned int totalNumberOfRepeats = 0;
 
@@ -489,7 +442,6 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
     //const unsigned int dimVec = 8;
     const unsigned int numPoints = contractionSize / numFields;
-    //const unsigned int numPoints = contractionSize / dimVec;
 
     const timespec thisSizesTic = getTimePoint();
 
@@ -497,70 +449,34 @@ int main(int argc, char* argv[]) {
     //  each size we'll just use subsets of this memory.
     const unsigned int maxNumberOfDotProducts =
       memorySizes.back() / 4 / sizeof(float) / contractionSize;
-    vector<float> dotProductData_LayoutRight_A(maxNumberOfDotProducts * contractionSize);
-    vector<float> dotProductData_LayoutRight_B(dotProductData_LayoutRight_A.size());
-    vector<float> dotProductData_LayoutLeft_A(dotProductData_LayoutRight_A.size());
-    vector<float> dotProductData_LayoutLeft_B(dotProductData_LayoutRight_B.size());
+    vector<float> inputData_LayoutRight(maxNumberOfDotProducts * contractionSize);
+    vector<float> inputField_LayoutRight(maxNumberOfDotProducts * contractionSize);
+    //vector<float> inputField_LayoutRight(inputData_LayoutRight.size());
+    vector<float> dotProductData_LayoutLeft_A(inputData_LayoutRight.size());
+    vector<float> dotProductData_LayoutLeft_B(inputField_LayoutRight.size());
+
     for (unsigned int dotProductIndex = 0;
          dotProductIndex < maxNumberOfDotProducts; ++dotProductIndex) {
       for (unsigned int entryIndex = 0;
            entryIndex < contractionSize; ++entryIndex) {
+
         const unsigned int layoutRightIndex =
           dotProductIndex * contractionSize + entryIndex;
-        dotProductData_LayoutRight_A[layoutRightIndex] =
+        inputData_LayoutRight[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
-        dotProductData_LayoutRight_B[layoutRightIndex] =
+        inputField_LayoutRight[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
+
         const unsigned int layoutLeftIndex =
           entryIndex * maxNumberOfDotProducts + dotProductIndex;
         dotProductData_LayoutLeft_A[layoutLeftIndex] =
-          dotProductData_LayoutRight_A[layoutRightIndex];
+          inputData_LayoutRight[layoutRightIndex];
         dotProductData_LayoutLeft_B[layoutLeftIndex] =
-          dotProductData_LayoutRight_B[layoutRightIndex];
+          inputField_LayoutRight[layoutRightIndex];
       }
     }
-    vector<float> calcResults(maxNumberOfDotProducts,
+    vector<float> calcResults(maxNumberOfDotProducts * numFields,
                                     std::numeric_limits<float>::quiet_NaN());
-
-#ifdef RAW_CUDA
-    // now, because we'll be working with cuda stuff, also allocate the inputs
-    //  and output on the gpu and copy them over
-    float * dev_dotProductData_LayoutRight_A;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutRight_A,
-                              maxNumberOfDotProducts * contractionSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutRight_A,
-                              &dotProductData_LayoutRight_A[0],
-                              maxNumberOfDotProducts * contractionSize * sizeof(float),
-                              cudaMemcpyHostToDevice));
-    float * dev_dotProductData_LayoutRight_B;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutRight_B,
-                              maxNumberOfDotProducts * contractionSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutRight_B,
-                              &dotProductData_LayoutRight_B[0],
-                              maxNumberOfDotProducts * contractionSize * sizeof(float),
-                              cudaMemcpyHostToDevice));
-    float * dev_calcResults;
-    checkCudaError(cudaMalloc((void **) &dev_calcResults,
-                              maxNumberOfDotProducts * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_calcResults, &calcResults[0],
-                              maxNumberOfDotProducts * sizeof(float),
-                              cudaMemcpyHostToDevice));
-    // make and populate the LayoutLeft versions
-    float * dev_dotProductData_LayoutLeft_A;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutLeft_A,
-                              maxNumberOfDotProducts * contractionSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutLeft_A,
-                              &dotProductData_LayoutLeft_A[0],
-                              maxNumberOfDotProducts * contractionSize * sizeof(float),
-                              cudaMemcpyHostToDevice));
-    float * dev_dotProductData_LayoutLeft_B;
-    checkCudaError(cudaMalloc((void **) &dev_dotProductData_LayoutLeft_B,
-                              maxNumberOfDotProducts * contractionSize * sizeof(float)));
-    checkCudaError(cudaMemcpy(dev_dotProductData_LayoutLeft_B,
-                              &dotProductData_LayoutLeft_B[0],
-                              maxNumberOfDotProducts * contractionSize * sizeof(float),
-                              cudaMemcpyHostToDevice));
-#endif // RAW_CUDA
 
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
@@ -585,25 +501,24 @@ int main(int argc, char* argv[]) {
       {
         timespec tic;
         for (unsigned int repeatIndex = 0;
-             repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+            repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
           ++totalNumberOfRepeats;
           if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
-               repeatIndex == 1) ||
+                repeatIndex == 1) ||
               clearCacheStyle == ClearCacheAfterEveryRepeat) {
             tic = getTimePoint();
           }
 
-        for (int cl = 0; cl < numCells; cl++) {
-          for (int lbf = 0; lbf < numFields; lbf++) {
-            double tmpVal = 0;
-            for (int qp = 0; qp < numPoints; qp++) {
-              tmpVal += dotProductData_LayoutRight_A[cl * numFields * numPoints + lbf * numPoints + qp]*
-                dotProductData_LayoutRight_B[cl * numPoints + qp];
-            } // P-loop
-            calcResults[cl * numFields + lbf] = tmpVal;
-          } // F-loop
-        } // C-loop
-
+          for (int cl = 0; cl < numCells; cl++) {
+            for (int lbf = 0; lbf < numFields; lbf++) {
+              double tmpVal = 0;
+              for (int qp = 0; qp < numPoints; qp++) {
+                tmpVal += inputField_LayoutRight[cl * numPoints *numFields + lbf * numPoints + qp] *
+                  inputData_LayoutRight[cl * numPoints +  qp];
+              } // P-loop
+              calcResults[cl * numFields + lbf] = tmpVal;
+            } // F-loop
+          } // C-loop
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
@@ -647,21 +562,20 @@ int main(int argc, char* argv[]) {
 
           // do the actual calculation
 #pragma omp parallel for default(none)                                  \
-  shared(dotProductData_LayoutRight_A, dotProductData_LayoutRight_B,    \
+  shared(inputData_LayoutRight, inputField_LayoutRight,    \
          calcResults)
 
-//FIXME: these loops should be collapsed
-        for (int cl = 0; cl < numCells; cl++) {
-          for (int lbf = 0; lbf < numFields; lbf++) {
-            double tmpVal = 0;
-            for (int qp = 0; qp < numPoints; qp++) {
-              tmpVal += dotProductData_LayoutRight_A[cl * numFields * numPoints + lbf * numPoints + qp]*
-                dotProductData_LayoutRight_B[cl * numPoints + qp];
-            } // P-loop
-            calcResults[cl * numFields + lbf] = tmpVal;
-          } // F-loop
-        } // C-loop
 
+          for (int cl = 0; cl < numCells; cl++) {
+            for (int lbf = 0; lbf < numFields; lbf++) {
+              double tmpVal = 0;
+              for (int qp = 0; qp < numPoints; qp++) {
+                tmpVal += inputField_LayoutRight[cl * numPoints *numFields + lbf * numPoints + qp] *
+                  inputData_LayoutRight[cl * numPoints +  qp];
+              } // P-loop
+              calcResults[cl * numFields + lbf] = tmpVal;
+            } // F-loop
+          } // C-loop
 
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
@@ -688,7 +602,7 @@ int main(int argc, char* argv[]) {
           ompTimesMatrix[contractionSizeIndex][memorySizeIndex] = elapsedTime;
           // check the results
           checkAnswer(correctResults, calcResults,
-                      contractionSize, memorySize,
+                      contractionSize * numFields, memorySize,
                       string("omp"));
         }
       }
@@ -701,95 +615,6 @@ int main(int argc, char* argv[]) {
                 calcResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
 
-#ifdef RAW_CUDA
-      checkCudaError(cudaMemcpy(dev_calcResults, &calcResults[0],
-                                maxNumberOfDotProducts * sizeof(float),
-                                cudaMemcpyHostToDevice));
-
-      // ===============================================================
-      // ***************** < do cuda independent> **********************
-      // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-      {
-        const unsigned int numberOfThreadsPerBlock = 1024;
-
-        cudaIndependent_TimesMatrix[contractionSizeIndex][memorySizeIndex] =
-          runCudaTest(CudaStyle_Independent,
-                      numberOfThreadsPerBlock,
-                      numberOfRepeats,
-                      maxNumberOfCudaBlocks,
-                      numberOfDotProducts,
-                      maxNumberOfDotProducts,
-                      contractionSize,
-                      memorySize,
-                      correctResults,
-                      clearCacheStyle,
-                      dev_junkDataToClearTheCache,
-                      junkDataSize,
-                      dev_dotProductData_LayoutLeft_A,
-                      dev_dotProductData_LayoutLeft_B,
-                      dev_junkDataCounter,
-                      &totalNumberOfRepeats,
-                      dev_calcResults,
-                      &calcResults);
-
-      }
-      // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-      // ***************** </do cuda independent> **********************
-      // ===============================================================
-
-      // ===============================================================
-      // ***************** < do cuda reductions> ***********************
-      // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-      {
-        const unsigned int numberOfThreadsPerBlock =
-          std::min(unsigned(1024),
-                   unsigned(ceil(contractionSize / 32.)) * 32);
-
-        cudaReduction_TimesMatrix[contractionSizeIndex][memorySizeIndex] =
-          runCudaTest(CudaStyle_Reduction,
-                      numberOfThreadsPerBlock,
-                      numberOfRepeats,
-                      maxNumberOfCudaBlocks,
-                      numberOfDotProducts,
-                      maxNumberOfDotProducts,
-                      contractionSize,
-                      memorySize,
-                      correctResults,
-                      clearCacheStyle,
-                      dev_junkDataToClearTheCache,
-                      junkDataSize,
-                      dev_dotProductData_LayoutRight_A,
-                      dev_dotProductData_LayoutRight_B,
-                      dev_junkDataCounter,
-                      &totalNumberOfRepeats,
-                      dev_calcResults,
-                      &calcResults);
-
-      }
-      cudaSwitchingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
-        runSwitchingCudaTest(numberOfRepeats,
-                             maxNumberOfCudaBlocks,
-                             numberOfDotProducts,
-                             maxNumberOfDotProducts,
-                             contractionSize,
-                             memorySize,
-                             correctResults,
-                             clearCacheStyle,
-                             dev_junkDataToClearTheCache,
-                             junkDataSize,
-                             dev_dotProductData_LayoutLeft_A,
-                             dev_dotProductData_LayoutLeft_B,
-                             dev_dotProductData_LayoutRight_A,
-                             dev_dotProductData_LayoutRight_B,
-                             dev_junkDataCounter,
-                             &totalNumberOfRepeats,
-                             dev_calcResults,
-                             &calcResults);
-      // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-      // ***************** </do cuda reductions> ***********************
-      // ===============================================================
-#endif // RAW_CUDA
-
 #ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
@@ -801,7 +626,6 @@ int main(int argc, char* argv[]) {
                              DeviceType>                   KokkosInputData;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosInputField;
-
         kokkosOmpTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
                         KokkosInputData,
@@ -810,8 +634,8 @@ int main(int argc, char* argv[]) {
                                               numCells,
                                               numPoints,
                                               numFields,
-                                              dotProductData_LayoutRight_A,
-                                              dotProductData_LayoutRight_B,
+                                              inputData_LayoutRight,
+                                              inputField_LayoutRight,
                                               correctResults,
                                               string("Kokkos openmp"),
                                               clearCacheStyle,
@@ -831,13 +655,13 @@ int main(int argc, char* argv[]) {
         kokkosCudaIndependentTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
                         KokkosInputData,
-                        KokkosInputField>(numberOfRepeats,
+                         KokkosInputField >(numberOfRepeats,
                                               memorySize,
                                               numCells,
                                               numPoints,
                                               numFields,
-                                              dotProductData_LayoutRight_A,
-                                              dotProductData_LayoutRight_B,
+                                              inputData_LayoutRight,
+                                              inputField_LayoutRight,
                                               correctResults,
                                               string("Kokkos cuda"),
                                               clearCacheStyle,
@@ -868,13 +692,6 @@ int main(int argc, char* argv[]) {
            "in %7.2f seconds\n", numberOfRepeats,
            contractionSize, thisSizesElapsedTime);
 
-#ifdef RAW_CUDA
-    checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_A));
-    checkCudaError(cudaFree(dev_dotProductData_LayoutLeft_B));
-    checkCudaError(cudaFree(dev_dotProductData_LayoutRight_A));
-    checkCudaError(cudaFree(dev_dotProductData_LayoutRight_B));
-    checkCudaError(cudaFree(dev_calcResults));
-#endif
 
   }
   writeTimesMatrixToFile(contractionSizeMatrix,
@@ -888,15 +705,6 @@ int main(int argc, char* argv[]) {
   writeTimesMatrixToFile(ompTimesMatrix,
                          prefix + string("ompTimes") + suffix);
 
-
-#ifdef RAW_CUDA
-  writeTimesMatrixToFile(cudaIndependent_TimesMatrix,
-                         prefix + string("cudaIndependentTimes") + suffix);
-  writeTimesMatrixToFile(cudaReduction_TimesMatrix,
-                         prefix + string("cudaReductionTimes") + suffix);
-  writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
-                         prefix + string("cudaSwitchingTimes") + suffix);
-#endif
 
 #ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
@@ -919,12 +727,6 @@ int main(int argc, char* argv[]) {
                     junkDataToClearTheCache.end(), size_t(0));
   {
     int temp = 0;
-#ifdef RAW_CUDA
-    checkCudaError(cudaMemcpy(&temp,
-                              dev_junkDataCounter,
-                              sizeof(int),
-                              cudaMemcpyDeviceToHost));
-#endif
     junkDataCounter += temp;
   }
   if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
