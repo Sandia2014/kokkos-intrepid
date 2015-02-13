@@ -63,19 +63,19 @@ class CFFS_TeamFunctor {
 	// Nothing to do
     }
 
-    void operator() (const team_member& dev) const {
-	int myID = elementIndex;
-	int myMatrix = myID / (_numLeftFields * _numRightFields);
-	int matrixIndex = myID % (_numLeftFields * _numRightFields);
+    void operator() (const int elementIndex) const {
+	int myID =  elementIndex;
+	int myMatrix = myID / (numLeftFields * numRightFields);
+	int matrixIndex = myID % (numLeftFields * numRightFields);
 
-	int matrixRow = matrixIndex / _numRightFields;
-	int matrixCol = matrixIndex % _numRightFields;
+	int matrixRow = matrixIndex / numRightFields;
+	int matrixCol = matrixIndex % numRightFields;
 
 	double temp = 0;
-	for (int qp = 0; qp < _numPoints; qp++) {
-	    temp += _leftFields(myMatrix, matrixRow, qp) * _rightFields(myMatrix, qp, matrixCol);
+	for (int qp = 0; qp < numPoints; qp++) {
+	    temp += leftView(myMatrix, matrixRow, qp) * rightView(myMatrix, qp, matrixCol);
 	}
-	_outputFields(myMatrix, matrixRow, matrixCol) = temp;
+	outputView(myMatrix, matrixRow, matrixCol) = temp;
     }
 
 
