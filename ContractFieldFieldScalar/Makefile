@@ -27,7 +27,8 @@ else
   #KOKKOS_DIR      := /clinic/2014/sandia14/trilinos-install/
   CC              := g++-4.7.3
   CUDA_PATH       ?= /opt/cuda
-  KOKKOS_DIR      := /clinic/2014/sandia14/trilinos-install-shadowfax
+  #KOKKOS_DIR      := /clinic/2014/sandia14/trilinos-install-shadowfax
+  KOKKOS_DIR      := /clinic/2014/sandia14/TrilinosInstall-2014-02-03
   NVCCSCC         := $(CC)
   # cuda
   CUDA_LIB_PATH   ?= $(CUDA_PATH)/lib64/
@@ -74,7 +75,7 @@ CC_FLAGS        += -std=c++11 -fopenmp
 NVCC_FLAGS      += -std=c++11
 NVCC_LD_FLAGS   += -lgomp
 
-TARGETS = GraphMaker 
+TARGETS = GraphMaker CFFS_teams 
 
 all: $(TARGETS)
 
@@ -88,8 +89,10 @@ ContractFieldFieldScalar: ContractFieldFieldScalar.cu
 	#$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O0,-g
 
 CFFS_teams: CFFS_teams.cpp
-	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/trilinos-install-shadowfax//include -o CFFS_teams CFFS_teams.cpp -fopenmp -L/clinic/2014/sandia14/trilinos-install-shadowfax/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
+	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o CFFS_teams CFFS_teams.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
 
+Example: nested_parallel_for.cpp
+	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o example nested_parallel_for.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
 
 
 clean:
