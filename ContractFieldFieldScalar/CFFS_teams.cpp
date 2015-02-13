@@ -109,21 +109,26 @@ struct CFFS_Slicing_TeamFunctor {
 
   KOKKOS_INLINE_FUNCTION
   void operator() (const team_member & thread) const {
-    int myID =  thread.league_rank();
-    int myMatrix = myID / (numLeftFields * numRightFields);
-    int matrixIndex = myID % (numLeftFields * numRightFields);
+    int l = thread.team_rank();
+    int r = thread.league_rank() % numRightFields;
+    int c = thread.league_rank() / numRightFields;
 
-    int matrixRow = matrixIndex / numRightFields;
-    int matrixCol = matrixIndex % numRightFields;
+    Kokkos::View<float*, Kokkos::MemoryUnmanaged> shared_slice(thread.team_shmem(), numPoints);
+    for (int p = thread.team_rank(); p < numPoints; p += thread.team_size()) {
+      shared_slice(p) = leftView(c, l, p);
+    }
+    thread.team_barrier();
 
     float sum = 0;
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, numPoints), 
-        [&] (const unsigned int& i, float& sum) {
-          sum += leftView(myMatrix, matrixRow, i) 
-                 * rightView(myMatrix, i, matrixCol);
-        }, 
-        sum);
-    outputView(myMatrix, matrixRow, matrixCol) = sum;
+    for (int p = 0; p < numPoints; ++p) {
+      sum += shared_slice(p) * rightView(c, p, r);
+    }
+    outputView(c, l, r) = sum;
+
+  }
+
+  size_t team_shmem_size( int team_size ) const {
+    return sizeof(float) * numPoints;
   }
 };
 
@@ -160,7 +165,7 @@ void contractFieldFieldScalarSerial(float * outputFields, // c, l, r
 int main(int argc, char* args[]) {
   Kokkos::initialize(argc, args);
 
-  int c = 1000, l = 10, r = 10, p = 10;
+  int c = 1000, l = 16, r = 10, p = 10;
 
   srand(time(NULL));
 
@@ -173,11 +178,13 @@ int main(int argc, char* args[]) {
 
   cuda_input_view leftCuda("left_input", c, l, p);
   cuda_input_view rightCuda("right_input", c, p, r);
-  cuda_output_view outCuda("output", c, l, r);
+  cuda_output_view outReductionCuda("output (reduction)", c, l, r);
+  cuda_output_view outSlicingCuda("output (slicing)", c, l, r);
 
   cuda_input_host cuda_hostLeft = Kokkos::create_mirror_view(leftCuda);
   cuda_input_host cuda_hostRight = Kokkos::create_mirror_view(rightCuda);
-  cuda_output_host cuda_hostOut = Kokkos::create_mirror_view(outCuda);
+  cuda_output_host cuda_reduction_hostOut = Kokkos::create_mirror_view(outReductionCuda);
+  cuda_output_host cuda_slicing_hostOut = Kokkos::create_mirror_view(outSlicingCuda);
 
   float * leftField = new float[c*l*p];
   float * rightField = new float[c*r*p];
@@ -205,29 +212,54 @@ int main(int argc, char* args[]) {
   contractFieldFieldScalarSerial(outField, leftField, rightField, c, l, r, p);
 
 
-  // Need to make the functor and run it
-  const team_policy policy( c*l*r , p );
+  // ---------------------------------------------------------------- //
+  //                         REDUCTION                                //
+  // ---------------------------------------------------------------- //
+  const team_policy reduction_policy( c*l*r , p );
   
   CFFS_Reduction_TeamFunctor<cuda_input_view, cuda_input_view, cuda_output_view>
-    kokkosFunctor(c, l, r, p, leftCuda, rightCuda, outCuda);
+    kokkosReductionFunctor(c, l, r, p, leftCuda, rightCuda, outReductionCuda);
 
-  Kokkos::parallel_for( policy, kokkosFunctor );
+  Kokkos::parallel_for( reduction_policy, kokkosReductionFunctor );
   Kokkos::fence();
 
-  Kokkos::deep_copy(cuda_hostOut, outCuda);
+  Kokkos::deep_copy(cuda_reduction_hostOut, outReductionCuda);
+
+
+  // ---------------------------------------------------------------- //
+  //                         SLICING                                  //
+  // ---------------------------------------------------------------- //
+  const team_policy slicing_policy(c*r, l);
+
+  CFFS_Slicing_TeamFunctor<cuda_input_view, cuda_input_view, cuda_output_view>
+    kokkosSlicingFunctor(c, l, r, p, leftCuda, rightCuda, outSlicingCuda);
+
+  Kokkos::parallel_for( slicing_policy, kokkosSlicingFunctor );
+  Kokkos::fence();
+
+  Kokkos::deep_copy(cuda_slicing_hostOut, outReductionCuda);
+
 
 
   // Need to verify that the solution is correct
   for (int cl = 0; cl < c; ++cl) {
     for (int lbf = 0; lbf < l; ++lbf) {
       for (int rbf = 0; rbf < r; ++rbf) {
-        if (std::abs(outField[cl*l*r + lbf*r + rbf] - cuda_hostOut(cl, lbf, rbf))
+        if (std::abs(outField[cl*l*r + lbf*r + rbf] - cuda_reduction_hostOut(cl, lbf, rbf))
              / std::abs(outField[cl*l*r + lbf*r + rbf]) >= 1e-4 )
         {
           Kokkos::finalize();
-          fprintf(stderr, "Calculation error.");
+          fprintf(stderr, "Calculation error in reduction.");
           exit(1);
         }
+        if (std::abs(outField[cl*l*r + lbf*r + rbf] - cuda_slicing_hostOut(cl, lbf, rbf))
+             / std::abs(outField[cl*l*r + lbf*r + rbf]) >= 1e-4 )
+        {
+          Kokkos::finalize();
+          fprintf(stderr, "Calculation error in reduction.");
+          exit(1);
+        }
+
       }
     }
   }
