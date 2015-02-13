@@ -91,20 +91,24 @@ struct ContractDataDataTensorFunctor {
 
     unsigned int elementIndex = thread.league_rank();
 
-    unsigned int iTens1 = thread.team_rank() / _dim1;
-    unsigned int iTens2 = thread.team_rank() % _dim1;
+    float sum;
+    float tsum =0;
+    for (unsigned int qp=0; qp < _numPoints; ++qp) {
 
-    float sum = 0;
+      sum = 0;
+      Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2),
+          [&] (const unsigned int& dim, float& sum) {
+              sum +=  _leftInput(elementIndex, qp, dim/_dim2, dim%_dim2) *
+                      _rightInput(elementIndex, qp, dim/_dim2, dim%_dim2);
+        }, sum);
 
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _numPoints),
-        [&] (const unsigned int& i, float& sum) {
-            sum +=  _leftInput(elementIndex, i, iTens1, iTens2) *
-                    _rightInput(elementIndex, i, iTens1, iTens2);
-      }, sum);
+      thread.team_barrier();
 
-    thread.team_barrier();
+      tsum += sum;
 
-    _output(elementIndex) = sum;
+    }
+
+    _output(elementIndex) = tsum;
   }
 
 private:
@@ -174,13 +178,17 @@ int main(int argc, char* argv[]) {
 
   for (int cl=0; cl < numCells; cl++) {
     double tmp = 0;
+    unsigned int clDim = cl * numPoints * dim1 * dim2;
+
     for (int qp=0; qp < numPoints; qp++) {
+      unsigned int qpDim = qp * dim1 * dim2;
+
       for (int iTens1=0; iTens1 < dim1; iTens1++) {
+        unsigned int iTens1Dim = iTens1 * dim2;
+
         for (int iTens2=0; iTens2 < dim2; iTens2++) {
-          tmp += inputA[cl * numPoints * dim1 * dim2 + qp * dim1 *
-            dim2 + iTens1 * dim2 + iTens2] *
-                 inputB[cl * numPoints * dim1 * dim2 + qp * dim1 *
-                 dim2 + iTens1 * dim2 + iTens2];
+          tmp +=  inputA[clDim + qpDim + iTens1Dim + iTens2] *
+                  inputB[clDim + qpDim + iTens1Dim + iTens2];
         }
       }
     }
@@ -202,20 +210,22 @@ int main(int argc, char* argv[]) {
 
 
 
-  const team_policy reduction_policy( numCells, dim1 * dim2 );
+  const team_policy reduction_policy(numCells, dim1 * dim2);
+  //const team_policy reduction_policy(numCells, numPoints);
 
   Kokkos::parallel_for( reduction_policy, contractDataDataTensorFunctor );
   Kokkos::fence();
 
   Kokkos::deep_copy(kokkosCalcResults, dev_kokkosCalcResults);
   for (unsigned int cl = 0; cl < numCells; ++cl) {
-    kokkosResults.at(cl) = kokkosCalcResults(cl);
+    kokkosResults[cl] = kokkosCalcResults(cl);
   }
   // check the results
   checkAnswer(serialResults, kokkosResults,
               numPoints * dim1 * dim2,
               "kokkos cuda reduction");
 
+  printf("yay!");
   Kokkos::finalize();
 
   return 0;
