@@ -868,9 +868,9 @@ int main(int argc, char* argv[]) {
                               cudaMemcpyHostToDevice));
     float * dev_contractionResults;
     checkCudaError(cudaMalloc((void **) &dev_contractionResults,
-                              maxNumberOfContractions * sizeof(float)));
+                              maxNumberOfContractions * l * r * sizeof(float)));
     checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults[0],
-                              maxNumberOfContractions * sizeof(float),
+                              maxNumberOfContractions * l * r * sizeof(float),
                               cudaMemcpyHostToDevice));
     // make and populate the LayoutLeft versions
     float * dev_contractionData_LayoutLeft_A;
