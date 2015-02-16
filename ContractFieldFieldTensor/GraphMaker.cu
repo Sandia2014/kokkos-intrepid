@@ -116,26 +116,25 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
                                  float * dev_tensorResults) {
 
   unsigned int myID = blockIdx.x * blockDim.x + threadIdx.x;
-  while (tensorIndex < numberOfTensors) {
+  while (myID < numberOfTensors) {
     float sum = 0;
     int myCell = myID / (numLeftFields * numRightFields);
     int matrixIndex = myID % (numLeftFields * numRightFields);
     int lbf = matrixIndex / numRightFields;
     int rbf = matrixIndex % numRightFields;
 
-    double temp = 0;
     for (int qp = 0; qp < numPoints; qp++) {
       for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
         for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
           sum += dev_tensorData_LayoutLeft_A[myCell*numLeftFields*numPoints*tens1*tens2 +
-                          lbf*numPoints*tens1*tens2+ qp*tens1*tens2 iTens1*tens2+iTens2] *
+                          lbf*numPoints*tens1*tens2+ qp*tens1*tens2+ iTens1*tens2+iTens2] *
                   dev_tensorData_LayoutLeft_B[myCell*numRightFields*numPoints*tens1*tens2 +
-                          rbf*numPoints*tens1*tens2+ qp*tens1*tens2 iTens1*tens2+iTens2]
+                          rbf*numPoints*tens1*tens2+ qp*tens1*tens2+ iTens1*tens2+iTens2];
         }
       }
     }
     dev_tensorResults[myID*numLeftFields*numRightFields + lbf*numRightFields + rbf] = sum;
-    tensorIndex += blockDim.x * gridDim.x;
+    myID += blockDim.x * gridDim.x;
   }
 }
 

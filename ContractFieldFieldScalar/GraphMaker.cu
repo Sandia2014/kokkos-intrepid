@@ -123,8 +123,8 @@ doCudaContractions_Independent_kernel(const unsigned int numberOfContractions,
 
     float temp = 0;
     for (int qp = 0; qp < contractionSize; qp++) {
-      temp += dev_contractionData_LayoutLeft_Right[myMatrix * numBasis * contractionSize + matrixCol * contractionSize + qp]
-      * dev_contractionData_LayoutLeft_Left[myMatrix * numBasis * contractionSize + matrixCol * contractionSize + qp];
+      temp += dev_contractionData_LayoutLeft_Left[myMatrix * numBasis * contractionSize + qp * numBasis + matrixRow]
+      * dev_contractionData_LayoutLeft_Right[myMatrix * numBasis * contractionSize + qp*numBasis + matrixCol];
     }
 
     dev_contractionResults[myMatrix * numBasis * numBasis + matrixRow * numBasis + matrixCol] = temp;
@@ -258,8 +258,8 @@ runCudaTest(const CudaStyle cudaStyle,
             const ClearCacheStyle clearCacheStyle,
             const int * const dev_junkDataToClearTheCache,
             const unsigned int junkDataSize,
-            const float * const dev_contractionData_Right,
-            const float * const dev_contractionData_Left,
+            const vector<float> & contractionData_Right,
+            const vector<float> & contractionData_Left,
             int * const dev_junkDataCounter,
             unsigned int * const totalNumberOfRepeats,
             float * const dev_contractionResults,
@@ -267,6 +267,46 @@ runCudaTest(const CudaStyle cudaStyle,
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
         (unsigned int)ceil(numberOfContractions/float(numberOfThreadsPerBlock)));
+    
+    // Format the data the way we want and then copy it to the GPU      
+    vector<float> contractionData_GPURight(contractionData_Right.size());
+    vector<float> contractionData_GPULeft(contractionData_Right.size());
+    
+    for (int cl = 0; cl < numberOfContractions; ++cl) {
+      for (int qp = 0; qp < contractionSize; ++qp) {
+        for(int rbf = 0; rbf < numBasis; ++rbf) {
+          contractionData_GPURight.at(cl*numBasis*contractionSize + qp*numBasis + rbf) =
+	  contractionData_Right.at(cl*numBasis*contractionSize + rbf*contractionSize + qp);
+	}
+	
+	for(int lbf = 0; lbf < numBasis; ++lbf) {
+          contractionData_GPULeft.at(cl*numBasis*contractionSize + qp*numBasis + lbf) =
+	  contractionData_Left.at(cl*numBasis*contractionSize + lbf*contractionSize + qp);
+	}
+      }
+    }
+
+    // Then copy it over
+    float * dev_contractionData_Right;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_Right,
+                              maxNumberOfContractions * contractionSize *
+			      sizeof(float) * numBasis));
+    checkCudaError(cudaMemcpy(dev_contractionData_Right,
+                              &contractionData_GPURight[0],
+                              maxNumberOfContractions * contractionSize *
+			      sizeof(float) * numBasis,
+                              cudaMemcpyHostToDevice));
+    float * dev_contractionData_Left;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_Left,
+                              maxNumberOfContractions * contractionSize *
+			      sizeof(float) * numBasis));
+    checkCudaError(cudaMemcpy(dev_contractionData_Left,
+                              &contractionData_GPULeft[0],
+                              maxNumberOfContractions * contractionSize *
+			      sizeof(float) * numBasis,
+                              cudaMemcpyHostToDevice));
+
+
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -329,7 +369,7 @@ runCudaTest(const CudaStyle cudaStyle,
   }
   // copy over the results from the gpu to the cpu
   checkCudaError(cudaMemcpy(&contractionResults->at(0), dev_contractionResults,
-                            numberOfContractions * sizeof(float),
+                            numberOfContractions *numBasis*numBasis* sizeof(float),
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *contractionResults,
@@ -341,8 +381,13 @@ runCudaTest(const CudaStyle cudaStyle,
             contractionResults->end(),
             std::numeric_limits<float>::quiet_NaN());
   checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults->at(0),
-                            numberOfContractions * sizeof(float),
+                            numberOfContractions * numBasis*numBasis*sizeof(float),
                             cudaMemcpyHostToDevice));
+
+
+  //Free data
+  checkCudaError(cudaFree(dev_contractionData_Right));
+  checkCudaError(cudaFree(dev_contractionData_Left));
 
   return totalElapsedTime;
 }
@@ -359,10 +404,10 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      const ClearCacheStyle clearCacheStyle,
                      const int * const dev_junkDataToClearTheCache,
                      const unsigned int junkDataSize,
-                     const float * const dev_contractionData_LayoutLeft_Right,
-                     const float * const dev_contractionData_LayoutLeft_Left,
-                     const float * const dev_contractionData_LayoutRight_Right,
-                     const float * const dev_contractionData_LayoutRight_Left,
+                     const vector<float> & contractionData_LayoutLeft_Right,
+                     const vector<float> & contractionData_LayoutLeft_Left,
+                     const vector<float> & contractionData_LayoutRight_Right,
+                     const vector<float> & contractionData_LayoutRight_Left,
                      int * const dev_junkDataCounter,
                      unsigned int * const totalNumberOfRepeats,
                      float * const dev_contractionResults,
@@ -388,8 +433,8 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   clearCacheStyle,
                   dev_junkDataToClearTheCache,
                   junkDataSize,
-                  dev_contractionData_LayoutRight_Right,
-                  dev_contractionData_LayoutRight_Left,
+                  contractionData_LayoutRight_Right,
+                  contractionData_LayoutRight_Left,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
                   dev_contractionResults,
@@ -410,8 +455,8 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   clearCacheStyle,
                   dev_junkDataToClearTheCache,
                   junkDataSize,
-                  dev_contractionData_LayoutLeft_Right,
-                  dev_contractionData_LayoutLeft_Left,
+                  contractionData_LayoutLeft_Right,
+                  contractionData_LayoutLeft_Left,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
                   dev_contractionResults,
@@ -887,26 +932,34 @@ int main(int argc, char* argv[]) {
     vector<float> contractionData_LayoutLeft_Left(contractionData_LayoutRight_Left.size());
     for (unsigned int contractionIndex = 0;
          contractionIndex < maxNumberOfContractions; ++contractionIndex) {
+      
       for (unsigned int entryIndex = 0;
            entryIndex < contractionSize * numBasis; ++entryIndex) {
-        const unsigned int layoutRightIndex =
+        
+	const unsigned int layoutRightIndex =
           contractionIndex * contractionSize*numBasis + entryIndex;
-        contractionData_LayoutRight_Right[layoutRightIndex] =
+        
+	contractionData_LayoutRight_Right[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
-        contractionData_LayoutRight_Left[layoutRightIndex] =
+        
+	contractionData_LayoutRight_Left[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
-        const unsigned int layoutLeftIndex =
+        
+	const unsigned int layoutLeftIndex =
           entryIndex * maxNumberOfContractions + contractionIndex;
-        contractionData_LayoutLeft_Right[layoutLeftIndex] =
+        
+	contractionData_LayoutLeft_Right[layoutLeftIndex] =
           contractionData_LayoutRight_Right[layoutRightIndex];
-        contractionData_LayoutLeft_Left[layoutLeftIndex] =
+        
+	contractionData_LayoutLeft_Left[layoutLeftIndex] =
           contractionData_LayoutRight_Left[layoutRightIndex];
       }
     }
+    
     vector<float>
     contractionResults(maxNumberOfContractions*numBasis*numBasis,
                                     std::numeric_limits<float>::quiet_NaN());
-
+/*
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
     float * dev_contractionData_LayoutRight_Right;
@@ -927,6 +980,7 @@ int main(int argc, char* argv[]) {
                               maxNumberOfContractions * contractionSize *
 			      sizeof(float) * numBasis,
                               cudaMemcpyHostToDevice));
+			      */
     float * dev_contractionResults;
     checkCudaError(cudaMalloc((void **) &dev_contractionResults,
                               maxNumberOfContractions * numBasis * numBasis *
@@ -935,6 +989,7 @@ int main(int argc, char* argv[]) {
                               maxNumberOfContractions * sizeof(float) * numBasis
 			      * numBasis,
                               cudaMemcpyHostToDevice));
+			      /*
     // make and populate the LayoutLeft versions
     float * dev_contractionData_LayoutLeft_Right;
     checkCudaError(cudaMalloc((void **) &dev_contractionData_LayoutLeft_Right,
@@ -954,7 +1009,7 @@ int main(int argc, char* argv[]) {
                               maxNumberOfContractions * contractionSize *
 			      numBasis * sizeof(float),
                               cudaMemcpyHostToDevice));
-
+*/
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
          memorySizeIndex < numberOfMemorySizes;
@@ -1133,8 +1188,8 @@ int main(int argc, char* argv[]) {
                       clearCacheStyle,
                       dev_junkDataToClearTheCache,
                       junkDataSize,
-                      dev_contractionData_LayoutLeft_Right,
-                      dev_contractionData_LayoutLeft_Left,
+                      contractionData_LayoutRight_Right,
+                      contractionData_LayoutRight_Left,
                       dev_junkDataCounter,
                       &totalNumberOfRepeats,
                       dev_contractionResults,
@@ -1274,10 +1329,13 @@ int main(int argc, char* argv[]) {
     checkCudaError(cudaFree(dev_contractionData_LayoutLeft_Left));
     checkCudaError(cudaFree(dev_contractionData_LayoutRight_Right));
     checkCudaError(cudaFree(dev_contractionData_LayoutRight_Left));
-    checkCudaError(cudaFree(dev_contractionResults));
     */
+    checkCudaError(cudaFree(dev_contractionResults));
+    
 
   }
+  fprintf(stderr, "beginning to write");
+  
   writeTimesMatrixToFile(contractionSizeMatrix,
                          prefix + string("contractionSize") + suffix);
   writeTimesMatrixToFile(numberOfContractionsMatrix,
@@ -1288,8 +1346,11 @@ int main(int argc, char* argv[]) {
                          prefix + string("serialTimes") + suffix);
   writeTimesMatrixToFile(ompTimesMatrix,
                          prefix + string("ompTimes") + suffix);
+
+fprintf(stderr, "about to print cuda times");
   writeTimesMatrixToFile(cudaIndependent_TimesMatrix,
                          prefix + string("cudaIndependentTimes") + suffix);
+fprintf(stderr,"printed cuda times");
   writeTimesMatrixToFile(cudaReduction_TimesMatrix,
                          prefix + string("cudaReductionTimes") + suffix);
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
@@ -1306,7 +1367,7 @@ int main(int argc, char* argv[]) {
 #else
   //const unsigned int numberOfMethods = 5;
 #endif
-
+/*
   const size_t junkDataSum =
     std::accumulate(junkDataToClearTheCache.begin(),
                     junkDataToClearTheCache.end(), size_t(0));
@@ -1328,7 +1389,7 @@ int main(int argc, char* argv[]) {
       exit(1);
     }
   } else {
-  /*
+  
     const size_t expectedDataCounter =
       junkDataSum * size_t(numberOfMethods) * (numberOfRepeats + 1) * numberOfMemorySizes *
       numberOfContractionSizes;
@@ -1339,10 +1400,10 @@ int main(int argc, char* argv[]) {
               expectedDataCounter, float(expectedDataCounter));
       exit(1);
     }
-    */
+    
   }
 
-/*
+
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
     (numberOfRepeats + 1) * numberOfMemorySizes * numberOfContractionSizes;
   if (totalNumberOfRepeats != expectedTotalNumberOfRepeats) {
