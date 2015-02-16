@@ -103,30 +103,41 @@ doCudaClearCache_kernel(const unsigned int junkDataSize,
 
 __global__
 void
-doCudaDotProducts_Independent_kernel(const unsigned int numberOfDotProducts,
-                                     const unsigned int maxNumberOfDotProducts,
-                                     const unsigned int dotProductSize,
-                                     const float * const __restrict__ dev_dotProductData_LayoutLeft_A,
-                                     const float * const __restrict__ dev_dotProductData_LayoutLeft_B,
-                                     float * dev_dotProductResults) {
-  unsigned int dotProductIndex = blockIdx.x * blockDim.x + threadIdx.x;
-  while (dotProductIndex < numberOfDotProducts) {
-    float sum = 0;
-    for (unsigned int entryIndex = 0; entryIndex < dotProductSize; ++entryIndex) {
-      const unsigned int index = dotProductIndex +
-        entryIndex * maxNumberOfDotProducts;
-      sum +=
-        dev_dotProductData_LayoutLeft_A[index] *
-        dev_dotProductData_LayoutLeft_B[index];
-    }
-    dev_dotProductResults[dotProductIndex] = sum;
-    dotProductIndex += blockDim.x * gridDim.x;
+doCudaContractions_Independent_kernel(const unsigned int numberOfContractions,
+                                     const unsigned int maxNumberOfContractions,
+                                     const unsigned int contractionSize,
+                                     const float * const __restrict__ dev_contractionData_LayoutLeft_A,
+                                     const float * const __restrict__ dev_contractionData_LayoutLeft_B,
+                                     float * dev_contractionResults,
+                                     const unsigned int l,
+                                     const unsigned int r,
+                                     const unsigned int q,
+                                     const unsigned int i) {
+  unsigned int contractionIndex = blockIdx.x * blockDim.x + threadIdx.x;
+  while (contractionIndex < numberOfContractions) {
+    int cellNum = contractionIndex / (l*r);
+    int fieldsIndex = contractionIndex % (l*r);
+    int leftFieldNum = fieldsIndex / r;
+    int rightFieldNum = fieldsIndex % r;
+
+    double tmpVal = 0;
+    for (int qp = 0; qp < q; qp++) {
+      for (int iVec = 0; iVec < i; iVec++) {
+        tmpVal += dev_contractionData_LayoutLeft_A[cellNum * l * q * i +
+                                        leftFieldNum * q * i + qp * i + iVec]
+                  *dev_contractionData_LayoutLeft_B[cellNum * r * q * i +
+                                    rightFieldNum * q * i + qp * i + iVec];
+      } //D-loop
+    } // P-loop
+
+    dev_contractionResults[cellNum * l * r + leftFieldNum * r + rightFieldNum] = tmpVal;
   }
 }
 
+
 __global__
 void
-doCudaDotProducts_Reduction_kernel(const unsigned int numberOfDotProducts,
+doCudaContractions_Reduction_kernel(const unsigned int numberOfDotProducts,
                                    const unsigned int dotProductSize,
                                    const float * const __restrict__ dev_dotProductData_LayoutRight_A,
                                    const float * const __restrict__ dev_dotProductData_LayoutRight_B,
@@ -241,23 +252,27 @@ runCudaTest(const CudaStyle cudaStyle,
             const unsigned int numberOfThreadsPerBlock,
             const unsigned int numberOfRepeats,
             const unsigned int maxNumberOfCudaBlocks,
-            const unsigned int numberOfDotProducts,
-            const unsigned int maxNumberOfDotProducts,
-            const unsigned int dotProductSize,
+            const unsigned int numCells,
+            const unsigned int maxNumberOfContractions,
+            const unsigned int contractionSize,
             const unsigned int memorySize,
             const vector<float> & correctResults,
             const ClearCacheStyle clearCacheStyle,
             const int * const dev_junkDataToClearTheCache,
             const unsigned int junkDataSize,
-            const float * const dev_dotProductData_A,
-            const float * const dev_dotProductData_B,
+            const float * const dev_contractionData_A,
+            const float * const dev_contractionData_B,
             int * const dev_junkDataCounter,
             unsigned int * const totalNumberOfRepeats,
-            float * const dev_dotProductResults,
-            vector<float> * const dotProductResults) {
+            float * const dev_contractionResults,
+            vector<float> * const contractionResults,
+            const unsigned int l,
+            const unsigned int r,
+            const unsigned int q,
+            const unsigned int i) {
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
-        (unsigned int)ceil(numberOfDotProducts/float(numberOfThreadsPerBlock)));
+        (unsigned int)ceil((numCells*l*r) /float(numberOfThreadsPerBlock)));
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -272,21 +287,25 @@ runCudaTest(const CudaStyle cudaStyle,
 
     // do the actual calculation
     if (cudaStyle == CudaStyle_Independent) {
-      doCudaDotProducts_Independent_kernel<<<numberOfBlocks,
-        numberOfThreadsPerBlock>>>(numberOfDotProducts,
-                                   maxNumberOfDotProducts,
-                                   dotProductSize,
-                                   dev_dotProductData_A,
-                                   dev_dotProductData_B,
-                                   dev_dotProductResults);
+      doCudaContractions_Independent_kernel<<<numberOfBlocks,
+        numberOfThreadsPerBlock>>>(numCells,
+                                   maxNumberOfContractions,
+                                   contractionSize,
+                                   dev_contractionData_A,
+                                   dev_contractionData_B,
+                                   dev_contractionResults,
+                                   l,
+                                   r,
+                                   q,
+                                   i);
     } else if (cudaStyle == CudaStyle_Reduction) {
-      doCudaDotProducts_Reduction_kernel<<<numberOfBlocks,
+      doCudaContractions_Reduction_kernel<<<numberOfBlocks,
         numberOfThreadsPerBlock,
-        numberOfThreadsPerBlock * sizeof(float)>>>(numberOfDotProducts,
-                                                   dotProductSize,
-                                                   dev_dotProductData_A,
-                                                   dev_dotProductData_B,
-                                                   dev_dotProductResults);
+        numberOfThreadsPerBlock * sizeof(float)>>>(numCells,
+                                                   contractionSize,
+                                                   dev_contractionData_A,
+                                                   dev_contractionData_B,
+                                                   dev_contractionResults);
     } else {
       fprintf(stderr, "unknown cuda style\n");
       exit(1);
@@ -318,20 +337,20 @@ runCudaTest(const CudaStyle cudaStyle,
     totalElapsedTime = elapsedTime;
   }
   // copy over the results from the gpu to the cpu
-  checkCudaError(cudaMemcpy(&dotProductResults->at(0), dev_dotProductResults,
-                            numberOfDotProducts * sizeof(float),
+  checkCudaError(cudaMemcpy(&contractionResults->at(0), dev_contractionResults,
+                            numCells *l*r* sizeof(float),
                             cudaMemcpyDeviceToHost));
   // check the results
-  checkAnswer(correctResults, *dotProductResults,
-              dotProductSize, memorySize,
+  checkAnswer(correctResults, *contractionResults,
+              contractionSize, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
-  std::fill(dotProductResults->begin(),
-            dotProductResults->end(),
+  std::fill(contractionResults->begin(),
+            contractionResults->end(),
             std::numeric_limits<float>::quiet_NaN());
-  checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults->at(0),
-                            numberOfDotProducts * sizeof(float),
+  checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults->at(0),
+                            numCells*r*l* sizeof(float),
                             cudaMemcpyHostToDevice));
 
   return totalElapsedTime;
@@ -355,7 +374,11 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      int * const dev_junkDataCounter,
                      unsigned int * const totalNumberOfRepeats,
                      float * const dev_dotProductResults,
-                     vector<float> * const dotProductResults) {
+                     vector<float> * const dotProductResults,
+		     const unsigned int l,
+		     const unsigned int r,
+		     const unsigned int q,
+		     const unsigned int i) {
   // if i can't saturate occupancy, do the reduction version
   // i got this number by just looking at where the plots crossed, where
   //  the reduction style actually starts beating the independent.
@@ -381,7 +404,11 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
                   dev_dotProductResults,
-                  dotProductResults);
+                  dotProductResults,
+		  l,
+		  r,
+		  q,
+		  i);
   } else {
     const unsigned int numberOfThreadsPerBlock = 1024;
     return
@@ -402,7 +429,11 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
                   dev_dotProductResults,
-                  dotProductResults);
+                  dotProductResults,
+		  l,
+		  r,
+		  q,
+		  i);
   }
 }
 
@@ -848,10 +879,11 @@ int main(int argc, char* argv[]) {
                               maxNumberOfContractions * contractionSize * sizeof(float),
                               cudaMemcpyHostToDevice));
     float * dev_contractionResults;
-    checkCudaError(cudaMalloc((void **) &dev_contractionResults,
-                              maxNumberOfContractions * sizeof(float)));
+    checkCudaError(cudaMalloc((void **) &dev_contractionResults, 
+                              maxNumberOfContractions * l * r * sizeof(float)));
     checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults[0],
-                              maxNumberOfContractions * sizeof(float),
+                              maxNumberOfContractions * l * r * sizeof(float),
+
                               cudaMemcpyHostToDevice));
     // make and populate the LayoutLeft versions
     float * dev_contractionData_LayoutLeft_A;
@@ -1013,38 +1045,45 @@ int main(int argc, char* argv[]) {
       checkCudaError(cudaMemcpy(dev_dotProductResults, &dotProductResults[0],
                                 maxNumberOfDotProducts * sizeof(float),
                                 cudaMemcpyHostToDevice));
-
+                                */
       // ===============================================================
       // ***************** < do cuda independent> **********************
+      
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+      
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
 
-        cudaIndependent_TimesMatrix[dotProductSizeIndex][memorySizeIndex] =
+        cudaIndependent_TimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTest(CudaStyle_Independent,
                       numberOfThreadsPerBlock,
                       numberOfRepeats,
                       maxNumberOfCudaBlocks,
-                      numberOfDotProducts,
-                      maxNumberOfDotProducts,
-                      dotProductSize,
+                      numCells,
+                      maxNumberOfContractions,
+                      contractionSize,
                       memorySize,
                       correctResults,
                       clearCacheStyle,
                       dev_junkDataToClearTheCache,
                       junkDataSize,
-                      dev_dotProductData_LayoutLeft_A,
-                      dev_dotProductData_LayoutLeft_B,
+                      dev_contractionData_LayoutLeft_A,
+                      dev_contractionData_LayoutLeft_B,
                       dev_junkDataCounter,
                       &totalNumberOfRepeats,
-                      dev_dotProductResults,
-                      &dotProductResults);
+                      dev_contractionResults,
+                      &contractionResults,
+                      l,
+                      r,
+                      q,
+                      i);
 
       }
+      
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
-
+      /*
       // ===============================================================
       // ***************** < do cuda reductions> ***********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv

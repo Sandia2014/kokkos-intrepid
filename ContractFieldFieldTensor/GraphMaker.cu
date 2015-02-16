@@ -104,23 +104,37 @@ doCudaClearCache_kernel(const unsigned int junkDataSize,
 __global__
 void
 doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
-                                     const unsigned int maxNumberOfTensors,
-                                     const unsigned int tensorSize,
-                                     const float * const __restrict__ dev_tensorData_LayoutLeft_A,
-                                     const float * const __restrict__ dev_tensorData_LayoutLeft_B,
-                                     float * dev_tensorResults) {
-  unsigned int tensorIndex = blockIdx.x * blockDim.x + threadIdx.x;
-  while (tensorIndex < numberOfTensors) {
+                                 const unsigned int numLeftFields,
+                                 const unsigned int numRightFields,
+                                 const unsigned int numPoints,
+                                 const unsigned int tens1,
+                                 const unsigned int tens2,
+                                 const unsigned int maxNumberOfTensors,
+                                 const unsigned int tensorSize,
+                                 const float * const __restrict__ dev_tensorData_LayoutLeft_A,
+                                 const float * const __restrict__ dev_tensorData_LayoutLeft_B,
+                                 float * dev_tensorResults) {
+
+  unsigned int myID = blockIdx.x * blockDim.x + threadIdx.x;
+  while (myID < numberOfTensors) {
     float sum = 0;
-    for (unsigned int entryIndex = 0; entryIndex < tensorSize; ++entryIndex) {
-      const unsigned int index = tensorIndex +
-        entryIndex * maxNumberOfTensors;
-      sum +=
-        dev_tensorData_LayoutLeft_A[index] *
-        dev_tensorData_LayoutLeft_B[index];
+    int myCell = myID / (numLeftFields * numRightFields);
+    int matrixIndex = myID % (numLeftFields * numRightFields);
+    int lbf = matrixIndex / numRightFields;
+    int rbf = matrixIndex % numRightFields;
+
+    for (int qp = 0; qp < numPoints; qp++) {
+      for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
+        for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
+          sum += dev_tensorData_LayoutLeft_A[myCell*numLeftFields*numPoints*tens1*tens2 +
+                          lbf*numPoints*tens1*tens2+ qp*tens1*tens2+ iTens1*tens2+iTens2] *
+                  dev_tensorData_LayoutLeft_B[myCell*numRightFields*numPoints*tens1*tens2 +
+                          rbf*numPoints*tens1*tens2+ qp*tens1*tens2+ iTens1*tens2+iTens2];
+        }
+      }
     }
-    dev_tensorResults[tensorIndex] = sum;
-    tensorIndex += blockDim.x * gridDim.x;
+    dev_tensorResults[myID*numLeftFields*numRightFields + lbf*numRightFields + rbf] = sum;
+    myID += blockDim.x * gridDim.x;
   }
 }
 
@@ -242,6 +256,11 @@ runCudaTest(const CudaStyle cudaStyle,
             const unsigned int numberOfRepeats,
             const unsigned int maxNumberOfCudaBlocks,
             const unsigned int numberOfTensors,
+            const unsigned int numLeftFields,
+            const unsigned int numRightFields,
+            const unsigned int numPoints,
+            const unsigned int tens1,
+            const unsigned int tens2,
             const unsigned int maxNumberOfTensors,
             const unsigned int tensorSize,
             const unsigned int memorySize,
@@ -255,6 +274,7 @@ runCudaTest(const CudaStyle cudaStyle,
             unsigned int * const totalNumberOfRepeats,
             float * const dev_tensorResults,
             vector<float> * const tensorResults) {
+
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
         (unsigned int)ceil(numberOfTensors/float(numberOfThreadsPerBlock)));
@@ -274,6 +294,11 @@ runCudaTest(const CudaStyle cudaStyle,
     if (cudaStyle == CudaStyle_Independent) {
       doCudaTensors_Independent_kernel<<<numberOfBlocks,
         numberOfThreadsPerBlock>>>(numberOfTensors,
+                                   numLeftFields,
+                                   numRightFields,
+                                   numPoints,
+                                   tens1,
+                                   tens2,
                                    maxNumberOfTensors,
                                    tensorSize,
                                    dev_tensorData_A,
@@ -341,6 +366,11 @@ double
 runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      const unsigned int maxNumberOfCudaBlocks,
                      const unsigned int numberOfTensors,
+                     const unsigned int numLeftFields,
+                     const unsigned int numRightFields,
+                     const unsigned int numPoints,
+                     const unsigned int tens1,
+                     const unsigned int tens2,
                      const unsigned int maxNumberOfTensors,
                      const unsigned int tensorSize,
                      const unsigned int memorySize,
@@ -369,6 +399,11 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   numberOfRepeats,
                   maxNumberOfCudaBlocks,
                   numberOfTensors,
+                  numLeftFields,
+                  numRightFields,
+                  numPoints,
+                  tens1,
+                  tens2,
                   maxNumberOfTensors,
                   tensorSize,
                   memorySize,
@@ -390,6 +425,11 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   numberOfRepeats,
                   maxNumberOfCudaBlocks,
                   numberOfTensors,
+                  numLeftFields,
+                  numRightFields,
+                  numPoints,
+                  tens1,
+                  tens2,
                   maxNumberOfTensors,
                   tensorSize,
                   memorySize,
@@ -494,7 +534,7 @@ struct contractFieldFieldTensorFunctor {
     _numLeftFields(numLeftFields), _numRightFields(numRightFields),
     _dim1Tens(dim1Tens), _dim2Tens(dim2Tens)
     {
-    
+
     }
 
     // This function expects the views to be in this order:
@@ -511,7 +551,7 @@ struct contractFieldFieldTensorFunctor {
 		int matrixIndex = myID % (_numLeftFields * _numRightFields);
 		int lbf = matrixIndex / _numRightFields;
 		int rbf = matrixIndex % _numRightFields;
-		
+
 		double temp = 0;
 		for (int qp = 0; qp < _numPoints; qp++) {
 		    for (int iTens1 = 0; iTens1 < _dim1Tens; iTens1++) {
@@ -533,7 +573,7 @@ double
 runKokkosTest(const unsigned int numCells,
               const unsigned int numberOfRepeats,
               const unsigned int numLeftFields,
-	      const unsigned int numRightFields,
+	          const unsigned int numRightFields,
 	      const int numPoints,
 	      const int tens1,
 	      const int tens2,
@@ -556,7 +596,7 @@ runKokkosTest(const unsigned int numCells,
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
-    
+
     int p=numPoints, t1=tens1, t2=tens2;
 
     // These are indices into the arrays and should not be
@@ -622,7 +662,7 @@ runKokkosTest(const unsigned int numCells,
 		for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
 		    for(int rbf = 0; rbf < numRightFields; ++rbf) {
 			kokkosData_Right(cl, qp, iTens1, iTens2, rbf) =
-			    tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff + 
+			    tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff +
 			    iTens1*tROff + iTens2*t2ROff];
 		    }
 		    for(int lbf = 0; lbf < numLeftFields; ++lbf) {
@@ -633,7 +673,7 @@ runKokkosTest(const unsigned int numCells,
 		}
 	    }
 	}
-    } 
+    }
 
 
   Kokkos::deep_copy(dev_kokkosData_Right, kokkosData_Right);
@@ -698,7 +738,7 @@ runKokkosTest(const unsigned int numCells,
     const timespec toc = getTimePoint();
     totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
   }
-  
+
   // copy over the results from the device to the host
   Kokkos::deep_copy(kokkosResults, dev_kokkosResults);
   /*
@@ -721,7 +761,7 @@ runKokkosTest(const unsigned int numCells,
   checkAnswer(correctResults, *results,
               numCells*numLeftFields*numRightFields, memorySize,
               kokkosFlavor);
-  
+
 
   // scrub the results
   std::fill(results->begin(),
@@ -748,10 +788,10 @@ void contractFieldFieldTensorSerial(vector<float> & outputFields,
      * (cell, left or right, points, dim1Tens, dim2Tens). That is the way
      * the indexing is calculated.
      */
-    
+
     if (sumInto) {
 	for (int cl = 0; cl < numCells; cl++) {
-	    // Need to index into the different arrays, so I am doing the 
+	    // Need to index into the different arrays, so I am doing the
 	    // calculation once here
 	    int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
 	    int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
@@ -808,7 +848,7 @@ void contractFieldFieldTensorSerial(vector<float> & outputFields,
 	} // C-loop
    }
 } // end contractFieldFieldTensor
- 
+
 
 
 int main(int argc, char* argv[]) {
@@ -824,7 +864,7 @@ int main(int argc, char* argv[]) {
     {{160, 320, 1600, 6400, 16000}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
-  //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
+  const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -957,7 +997,7 @@ int main(int argc, char* argv[]) {
          tensorIndex < maxNumberOfTensors; ++tensorIndex) {
       for (unsigned int entryIndex = 0;
            entryIndex < tensorSize; ++entryIndex) {
-	
+
         const unsigned int layoutRightIndex =
           tensorIndex * tensorSize + entryIndex;
         tensorData_LayoutRight_A[layoutRightIndex] =
@@ -976,7 +1016,7 @@ int main(int argc, char* argv[]) {
     tensorResults(maxNumberOfTensors*numLeftFields*numRightFields,
                                     std::numeric_limits<float>::quiet_NaN());
 
-    #if 0 
+
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
     float * dev_tensorData_LayoutRight_A;
@@ -995,9 +1035,9 @@ int main(int argc, char* argv[]) {
                               cudaMemcpyHostToDevice));
     float * dev_tensorResults;
     checkCudaError(cudaMalloc((void **) &dev_tensorResults,
-                              maxNumberOfTensors * sizeof(float)));
+                              maxNumberOfTensors *numLeftFields*numRightFields*sizeof(float)));
     checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults[0],
-                              maxNumberOfTensors * sizeof(float),
+                              maxNumberOfTensors*numLeftFields*numRightFields*sizeof(float),
                               cudaMemcpyHostToDevice));
     // make and populate the LayoutLeft versions
     float * dev_tensorData_LayoutLeft_A;
@@ -1014,7 +1054,6 @@ int main(int argc, char* argv[]) {
                               &tensorData_LayoutLeft_B[0],
                               maxNumberOfTensors * tensorSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-    #endif
 
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
@@ -1097,8 +1136,8 @@ int main(int argc, char* argv[]) {
 #pragma omp parallel for default(none)                                  \
   shared(tensorData_LayoutRight_A, tensorData_LayoutRight_B,    \
          tensorResults)
-          
-	  for (unsigned int elementId = 0; 
+
+	  for (unsigned int elementId = 0;
 		elementId <  numberOfTensors * numLeftFields * numRightFields;
 		elementId++) {
 		int myCell = elementId / (numLeftFields * numRightFields);
@@ -1124,7 +1163,7 @@ int main(int argc, char* argv[]) {
 		lbf*numRightFields + rbf) = temp;
 	    }
 
-	  
+
 	  /*
 	  for (unsigned int tensorIndex = 0;
                tensorIndex < numberOfTensors;
@@ -1168,7 +1207,7 @@ int main(int argc, char* argv[]) {
                       tensorSize, memorySize,
                       string("omp"));
         }
-	
+
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ********************** </do omp> ******************************
@@ -1182,7 +1221,7 @@ int main(int argc, char* argv[]) {
                                 maxNumberOfTensors * sizeof(float),
                                 cudaMemcpyHostToDevice));
     */
-    #if 0
+
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1195,6 +1234,11 @@ int main(int argc, char* argv[]) {
                       numberOfRepeats,
                       maxNumberOfCudaBlocks,
                       numberOfTensors,
+                      numLeftFields,
+                      numRightFields,
+                      numPoints,
+                      tens1,
+                      tens2,
                       maxNumberOfTensors,
                       tensorSize,
                       memorySize,
@@ -1213,7 +1257,7 @@ int main(int argc, char* argv[]) {
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
-
+      #if 0
       // ===============================================================
       // ***************** < do cuda reductions> ***********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1247,6 +1291,11 @@ int main(int argc, char* argv[]) {
         runSwitchingCudaTest(numberOfRepeats,
                              maxNumberOfCudaBlocks,
                              numberOfTensors,
+                             numLeftFields,
+                             numRightFields,
+                             numPoints,
+                             tens1,
+                             tens2,
                              maxNumberOfTensors,
                              tensorSize,
                              memorySize,
@@ -1407,7 +1456,7 @@ int main(int argc, char* argv[]) {
     const size_t expectedDataCounter =
       junkDataSum * size_t(numberOfMethods) * (numberOfRepeats + 1) * numberOfMemorySizes *
       numberOfTensorSizes;
-      
+
     if (junkDataCounter != expectedDataCounter) {
       fprintf(stderr, "for ClearCacheAfterEveryRepeat, invalid "
               "junkDataCounter = %zu (%e), it should be %zu (%e)\n",

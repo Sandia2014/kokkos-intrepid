@@ -26,13 +26,13 @@ using std::array;
 // header file for openmp
 #include <omp.h>
 
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
 typedef Kokkos::DefaultExecutionSpace Device;
 typedef Kokkos::HostSpace::execution_space Host;
 typedef Kokkos::TeamPolicy<Device> team_policy;
 typedef team_policy::member_type team_member;
-#endif // ENABLE_KOKKOS
+//#endif // ENABLE_KOKKOS
 
 
 
@@ -475,7 +475,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 
 
 
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
 
 
 
@@ -985,7 +985,7 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 
   // check the results
   checkAnswer(correctResults, *contractionResults,
-              numberOfContractions*numLeftFields*numRightFields, memorySize,
+              numPoints, memorySize,
               kokkosFlavor);
   // scrub the results
   std::fill(contractionResults->begin(),
@@ -996,7 +996,7 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 }
 
 
-#endif // ENABLE_KOKKOS
+//#endif // ENABLE_KOKKOS
 
 
 
@@ -1030,9 +1030,9 @@ void contractFieldFieldScalarSerial(vector<float> & outputFields, // c, l, r
 
 int main(int argc, char* argv[]) {
 
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   Kokkos::initialize(argc, argv);
-#endif
+//#endif
 
   // ===============================================================
   // ********************** < input> ******************************
@@ -1111,7 +1111,7 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     cudaSwitchingTimesMatrix(numberOfContractionSizes,
                              vector<float>(numberOfMemorySizes, 0));
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfContractionSizes,
                          vector<float>(numberOfMemorySizes, 0));
@@ -1121,7 +1121,7 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     kokkosTeamReductionTimesMatrix(numberOfContractionSizes,
 				     vector<float>(numberOfMemorySizes, 0));
-#endif
+//#endif
 
   // create some junk data to use in clearing the cache
   size_t junkDataCounter = 0;
@@ -1493,7 +1493,7 @@ int main(int argc, char* argv[]) {
       // ***************** </do cuda reductions> ***********************
       // ===============================================================
     */
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1536,7 +1536,7 @@ int main(int argc, char* argv[]) {
                                               contractionData_LayoutRight_Right,
                                               contractionData_LayoutRight_Left,
                                               correctResults,
-                                              string("Kokkos Team Reduction"),
+                                              string("Kokkos cuda"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
@@ -1560,7 +1560,7 @@ int main(int argc, char* argv[]) {
                                               contractionData_LayoutRight_Right,
                                               contractionData_LayoutRight_Left,
                                               correctResults,
-                                              string("Kokkos cuda"),
+                                              string("Kokkos Team Reduction"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
@@ -1572,7 +1572,7 @@ int main(int argc, char* argv[]) {
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
-#endif // ENABLE_KOKKOS
+//#endif // ENABLE_KOKKOS
 
       contractionSizeMatrix[contractionSizeIndex][memorySizeIndex] =
         contractionSize;
@@ -1620,7 +1620,7 @@ fprintf(stderr,"printed cuda times");
                          prefix + string("cudaReductionTimes") + suffix);
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
                          prefix + string("kokkosOmpTimes") + suffix);
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
@@ -1628,13 +1628,13 @@ fprintf(stderr,"printed cuda times");
   writeTimesMatrixToFile(kokkosTeamReductionTimesMatrix,
                          prefix + string("kokkosTeamReductionTimes") + suffix);
 
-#endif
+//#endif
 
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   //const unsigned int numberOfMethods = 7;
-#else
+//#else
   //const unsigned int numberOfMethods = 5;
-#endif
+//#endif
 /*
   const size_t junkDataSum =
     std::accumulate(junkDataToClearTheCache.begin(),
@@ -1682,9 +1682,9 @@ fprintf(stderr,"printed cuda times");
     exit(1);
   }
 */
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   Kokkos::finalize();
-#endif
+//#endif
 
   return 0;
 }
