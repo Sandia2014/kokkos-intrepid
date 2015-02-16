@@ -28,6 +28,7 @@ ompTimes = numpy.loadtxt(open(prefix + 'ompTimes' + suffix + '.csv','rb'),delimi
 #cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+kokkosCudaTeamTimes = numpy.loadtxt(open(prefix + 'kokkosCudaTeamTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 
 # set up a list of the times and names, for easy iteration later
 # TODO: make this consistent with the files that you read in and/or care about
@@ -51,6 +52,8 @@ allTimes.append(kokkosOmpTimes)
 allNames.append('kokkosOmp')
 allTimes.append(kokkosCudaIndependentTimes)
 allNames.append('kokkosCudaIndependent')
+allTimes.append(kokkosCudaTeamTimes)
+allNames.append('kokkosCudaTeam')
 
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
