@@ -106,20 +106,28 @@ void
 doCudaContractions_Independent_kernel(const unsigned int numberOfContractions,
                                      const unsigned int maxNumberOfContractions,
                                      const unsigned int contractionSize,
+                                     const unsigned int numBasis,
                                      const float * const __restrict__ dev_contractionData_LayoutLeft_Right,
                                      const float * const __restrict__ dev_contractionData_LayoutLeft_Left,
                                      float * dev_contractionResults) {
+
   unsigned int contractionIndex = blockIdx.x * blockDim.x + threadIdx.x;
   while (contractionIndex < numberOfContractions) {
-    float sum = 0;
-    for (unsigned int entryIndex = 0; entryIndex < contractionSize; ++entryIndex) {
-      const unsigned int index = contractionIndex +
-        entryIndex * maxNumberOfContractions;
-      sum +=
-        dev_contractionData_LayoutLeft_Right[index] *
-        dev_contractionData_LayoutLeft_Left[index];
+
+    int myID = contractionIndex;
+    int myMatrix = myID / (numBasis * numBasis);
+    int matrixIndex = myID % (numBasis * numBasis);
+
+    int matrixRow = matrixIndex / numBasis;
+    int matrixCol = matrixIndex % numBasis;
+
+    float temp = 0;
+    for (int qp = 0; qp < contractionSize; qp++) {
+      temp += dev_contractionData_LayoutLeft_Right[myMatrix * numBasis * contractionSize + matrixCol * contractionSize + qp]
+      * dev_contractionData_LayoutLeft_Left[myMatrix * numBasis * contractionSize + matrixCol * contractionSize + qp];
     }
-    dev_contractionResults[contractionIndex] = sum;
+
+    dev_contractionResults[myMatrix * numBasis * numBasis + matrixRow * numBasis + matrixCol] = temp;
     contractionIndex += blockDim.x * gridDim.x;
   }
 }
@@ -244,6 +252,7 @@ runCudaTest(const CudaStyle cudaStyle,
             const unsigned int numberOfContractions,
             const unsigned int maxNumberOfContractions,
             const unsigned int contractionSize,
+            const unsigned int numBasis,
             const unsigned int memorySize,
             const vector<float> & correctResults,
             const ClearCacheStyle clearCacheStyle,
@@ -273,9 +282,10 @@ runCudaTest(const CudaStyle cudaStyle,
     // do the actual calculation
     if (cudaStyle == CudaStyle_Independent) {
       doCudaContractions_Independent_kernel<<<numberOfBlocks,
-        numberOfThreadsPerBlock>>>(numberOfContractions,
+        numberOfThreadsPerBlock>>>(numberOfContractions*numBasis*numBasis,
                                    maxNumberOfContractions,
                                    contractionSize,
+                                   numBasis,
                                    dev_contractionData_Right,
                                    dev_contractionData_Left,
                                    dev_contractionResults);
@@ -323,7 +333,7 @@ runCudaTest(const CudaStyle cudaStyle,
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *contractionResults,
-              contractionSize, memorySize,
+              numberOfContractions*numBasis*numBasis, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
@@ -343,6 +353,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      const unsigned int numberOfContractions,
                      const unsigned int maxNumberOfContractions,
                      const unsigned int contractionSize,
+		     const unsigned int numBasis,
                      const unsigned int memorySize,
                      const vector<float> & correctResults,
                      const ClearCacheStyle clearCacheStyle,
@@ -371,6 +382,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   numberOfContractions,
                   maxNumberOfContractions,
                   contractionSize,
+		  numBasis,
                   memorySize,
                   correctResults,
                   clearCacheStyle,
@@ -392,6 +404,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   numberOfContractions,
                   maxNumberOfContractions,
                   contractionSize,
+		  numBasis,
                   memorySize,
                   correctResults,
                   clearCacheStyle,
@@ -544,7 +557,7 @@ runKokkosTest(const unsigned int numberOfContractions,
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
   typedef typename KokkosContractionData::HostMirror     KokkosContractionData_Host;
-  typedef Kokkos::View<float***, Kokkos::LayoutRight, 
+  typedef Kokkos::View<float***, Kokkos::LayoutRight,
 	DeviceType>              KokkosContractionResults;
   typedef typename KokkosContractionResults::HostMirror  KokkosContractionResults_Host;
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
@@ -552,7 +565,7 @@ runKokkosTest(const unsigned int numberOfContractions,
 
   const unsigned int numPoints = contractionSize;
 
-    
+
 
     KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
                                                   numberOfContractions,
@@ -688,7 +701,7 @@ runKokkosTest(const unsigned int numberOfContractions,
 	  }
       }
   }
-  
+
   // check the results
   checkAnswer(correctResults, *contractionResults,
               numberOfContractions*numLeftFields*numRightFields, memorySize,
@@ -746,7 +759,7 @@ int main(int argc, char* argv[]) {
     {{8, 16, 32, 64, 128, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
-  //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
+  const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -853,7 +866,7 @@ int main(int argc, char* argv[]) {
   unsigned int totalNumberOfRepeats = 0;
 
   // for each dot product s;
-    for (int contractionSizeIndex = 0;   
+    for (int contractionSizeIndex = 0;
        contractionSizeIndex < numberOfContractionSizes;
        ++contractionSizeIndex) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
@@ -894,7 +907,6 @@ int main(int argc, char* argv[]) {
     contractionResults(maxNumberOfContractions*numBasis*numBasis,
                                     std::numeric_limits<float>::quiet_NaN());
 
-    #if 0
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
     float * dev_contractionData_LayoutRight_Right;
@@ -917,7 +929,7 @@ int main(int argc, char* argv[]) {
                               cudaMemcpyHostToDevice));
     float * dev_contractionResults;
     checkCudaError(cudaMalloc((void **) &dev_contractionResults,
-                              maxNumberOfContractions * numBasis * numBasis * 
+                              maxNumberOfContractions * numBasis * numBasis *
 			      sizeof(float)));
     checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults[0],
                               maxNumberOfContractions * sizeof(float) * numBasis
@@ -942,7 +954,6 @@ int main(int argc, char* argv[]) {
                               maxNumberOfContractions * contractionSize *
 			      numBasis * sizeof(float),
                               cudaMemcpyHostToDevice));
-    #endif
 
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
@@ -978,7 +989,7 @@ int main(int argc, char* argv[]) {
          contractFieldFieldScalarSerial(contractionResults,
 	 contractionData_LayoutRight_Left, contractionData_LayoutRight_Right,
 	 numberOfContractions, numBasis, numBasis, numPoints);
-          
+
 	 if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
@@ -1035,14 +1046,14 @@ int main(int argc, char* argv[]) {
 	      int finalCell = numBasis*numBasis;
 	      for (int qp = 0; qp < numPoints; qp++) {
 		  temp += contractionData_LayoutRight_Left.at(myMatrix*cellMult +
-			  matrixRow*numPoints + qp) * 
+			  matrixRow*numPoints + qp) *
 		      contractionData_LayoutRight_Right.at(myMatrix*cellMult +
 			      matrixCol*numPoints + qp);
 	      }
 	      contractionResults.at(myMatrix*finalCell + matrixRow*numBasis +
 		      matrixCol);
 	  }
-	
+
 
 	  /*
 	  for (unsigned int contractionIndex = 0;
@@ -1101,7 +1112,7 @@ int main(int argc, char* argv[]) {
                                 maxNumberOfContractions * sizeof(float),
                                 cudaMemcpyHostToDevice));
       */
-    #if 0
+
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1116,6 +1127,7 @@ int main(int argc, char* argv[]) {
                       numberOfContractions,
                       maxNumberOfContractions,
                       contractionSize,
+                      numBasis,
                       memorySize,
                       correctResults,
                       clearCacheStyle,
@@ -1133,6 +1145,7 @@ int main(int argc, char* argv[]) {
       // ***************** </do cuda independent> **********************
       // ===============================================================
 
+      /*
       // ===============================================================
       // ***************** < do cuda reductions> ***********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1184,7 +1197,7 @@ int main(int argc, char* argv[]) {
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda reductions> ***********************
       // ===============================================================
-    #endif
+    */
 #ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
