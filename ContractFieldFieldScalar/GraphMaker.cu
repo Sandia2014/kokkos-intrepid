@@ -333,7 +333,7 @@ runCudaTest(const CudaStyle cudaStyle,
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *contractionResults,
-              contractionSize, memorySize,
+              numberOfContractions*numBasis*numBasis, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
@@ -353,6 +353,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      const unsigned int numberOfContractions,
                      const unsigned int maxNumberOfContractions,
                      const unsigned int contractionSize,
+		     const unsigned int numBasis,
                      const unsigned int memorySize,
                      const vector<float> & correctResults,
                      const ClearCacheStyle clearCacheStyle,
@@ -381,6 +382,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   numberOfContractions,
                   maxNumberOfContractions,
                   contractionSize,
+		  numBasis,
                   memorySize,
                   correctResults,
                   clearCacheStyle,
@@ -402,6 +404,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   numberOfContractions,
                   maxNumberOfContractions,
                   contractionSize,
+		  numBasis,
                   memorySize,
                   correctResults,
                   clearCacheStyle,
@@ -756,7 +759,7 @@ int main(int argc, char* argv[]) {
     {{8, 16, 32, 64, 128, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
-  //const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
+  const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
