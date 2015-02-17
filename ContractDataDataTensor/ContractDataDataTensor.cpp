@@ -202,23 +202,22 @@ struct ContractDataDataTensor_TeamFunctor {
   void operator()(const team_member& thread) const {
 
     const unsigned int elementIndex = thread.league_rank();
-    const unsigned int dim = thread.team_rank();
+    const unsigned int dim2 = thread.team_rank();
 
     float sum = 0;
     float tsum = 0;
 
-    const unsigned int dim1 = dim/_dim2;
-    const unsigned int dim2 = dim%_dim2;
-
 
     for (unsigned int qp=0; qp < _numPoints; ++qp) {
-      sum +=  _leftInput(elementIndex, qp, dim1, dim2) *
-        _rightInput(elementIndex, qp, dim1, dim2);
+      for (unsigned int d1=0; d1 < _dim1; ++d1) {
+        sum +=  _leftInput(elementIndex, qp, d1, dim2) *
+          _rightInput(elementIndex, qp, d1, dim2);
+      }
     }
 
     //sum = 0;
 
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2),
+    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim2),
         [&] (const unsigned int& dim, float& localsum) {
         localsum += sum;
       }, tsum);
@@ -426,7 +425,8 @@ runKokkosTest(const unsigned int numberOfRepeats,
             dev_kokkosInputData_B,
             dev_kokkosCalcResults);
 
-    const team_policy reduction_policy(numCells, dim1 * dim2);
+    //const team_policy reduction_policy(numCells, dim1 * dim2);
+    const team_policy reduction_policy(numCells, dim2);
 
     timespec tic;
     totalElapsedTime = 0;
