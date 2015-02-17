@@ -814,7 +814,6 @@ struct CFFS_Reduction_TeamFunctor {
 };
 
 
-
 template <class DeviceType, class KokkosContractionData>
 double
 runKokkosTeamReductionTest(const unsigned int numberOfContractions,

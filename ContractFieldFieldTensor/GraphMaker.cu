@@ -126,9 +126,9 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
     for (int qp = 0; qp < numPoints; qp++) {
       for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
         for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
-          sum += dev_tensorData_LayoutLeft_A[myCell*numLeftFields*numPoints*tens1*tens2 +
+          sum += dev_tensorData_Left[myCell*numLeftFields*numPoints*tens1*tens2 +
                           lbf*numPoints*tens1*tens2+ qp*tens1*tens2+ iTens1*tens2+iTens2] *
-                  dev_tensorData_LayoutLeft_B[myCell*numRightFields*numPoints*tens1*tens2 +
+                  dev_tensorData_Right[myCell*numRightFields*numPoints*tens1*tens2 +
                            qp*tens1*tens2*numRightFields+iTens1*tens2*numRightFields+iTens2*numRightFields+rbf];
         }
       }
@@ -298,7 +298,7 @@ runCudaTest(const CudaStyle cudaStyle,
         for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
           for(int rbf = 0; rbf < numRightFields; ++rbf) {
             contractionData_GPURight[cl*cROff + qp*numRightFields*tens1*tens2+
-                    iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf) =
+                    iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf] =
             tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
             iTens1*tROff + iTens2*t2ROff];
           }
@@ -362,8 +362,8 @@ runCudaTest(const CudaStyle cudaStyle,
         numberOfThreadsPerBlock,
         numberOfThreadsPerBlock * sizeof(float)>>>(numberOfTensors,
                                                    tensorSize,
-                                                   dev_tensorData_A,
-                                                   dev_tensorData_B,
+                                                   dev_contractionData_Left,
+                                                   dev_contractionData_Right,
                                                    dev_tensorResults);
     } else {
       fprintf(stderr, "unknown cuda style\n");
@@ -1281,6 +1281,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+      
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
 
@@ -1302,14 +1303,15 @@ int main(int argc, char* argv[]) {
                       clearCacheStyle,
                       dev_junkDataToClearTheCache,
                       junkDataSize,
-                      contractionData_LayoutRight_Right,
-                      contractionData_LayoutRight_Left,
+                      tensorData_LayoutRight_A,
+                      tensorData_LayoutRight_B,
                       dev_junkDataCounter,
                       &totalNumberOfRepeats,
                       dev_tensorResults,
                       &tensorResults);
 
       }
+      
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
