@@ -62,7 +62,7 @@ typedef Kokkos::DefaultExecutionSpace       Device ;
 typedef Kokkos::HostSpace::execution_space  Host ;
 
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
-struct ContractDataDataTensorFunctor {
+struct ContractDataDataTensor_TeamFunctor {
   LeftViewType _leftInput;
   RightViewType _rightInput;
   OutputViewType _output;
@@ -70,7 +70,7 @@ struct ContractDataDataTensorFunctor {
   int _dim1;
   int _dim2;
 
-  ContractDataDataTensorFunctor( int numPoints,
+  ContractDataDataTensor_TeamFunctor( int numPoints,
       int dim1,
       int dim2,
       LeftViewType leftInput,
@@ -112,7 +112,7 @@ struct ContractDataDataTensorFunctor {
   }
 
 private:
-  ContractDataDataTensorFunctor();
+  ContractDataDataTensor_TeamFunctor();
 };
 
 
@@ -196,7 +196,7 @@ int main(int argc, char* argv[]) {
   }
 
 
-  ContractDataDataTensorFunctor<DeviceType,
+  ContractDataDataTensor_TeamFunctor<DeviceType,
                             KokkosInputData,
                             KokkosInputData,
                             KokkosCalcResults>

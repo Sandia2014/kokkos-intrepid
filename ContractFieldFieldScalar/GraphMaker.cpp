@@ -26,13 +26,13 @@ using std::array;
 // header file for openmp
 #include <omp.h>
 
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
 typedef Kokkos::DefaultExecutionSpace Device;
 typedef Kokkos::HostSpace::execution_space Host;
 typedef Kokkos::TeamPolicy<Device> team_policy;
 typedef team_policy::member_type team_member;
-#endif // ENABLE_KOKKOS
+//#endif // ENABLE_KOKKOS
 
 
 
@@ -475,7 +475,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 
 
 
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
 
 
 
@@ -985,7 +985,7 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 
   // check the results
   checkAnswer(correctResults, *contractionResults,
-              numberOfContractions*numLeftFields*numRightFields, memorySize,
+              numPoints, memorySize,
               kokkosFlavor);
   // scrub the results
   std::fill(contractionResults->begin(),
@@ -995,8 +995,512 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
   return totalElapsedTime;
 }
 
+template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
+struct CFFS_Slicing_TeamFunctor {
+  unsigned int numCells;
+  unsigned int numLeftFields;
+  unsigned int numRightFields;
+  unsigned int numPoints;
+  LeftInputViewType leftView;
+  RightInputViewType rightView;
+  OutputViewType outputView;
 
-#endif // ENABLE_KOKKOS
+
+  CFFS_Slicing_TeamFunctor(unsigned int _numCells, unsigned int _numLeftFields,
+      unsigned int _numRightFields, unsigned int _numPoints,
+      LeftInputViewType _leftView, 
+      RightInputViewType _rightView, 
+      OutputViewType _outputView) :
+    numCells(_numCells), 
+    numLeftFields(_numLeftFields), 
+    numRightFields(_numRightFields), 
+    numPoints(_numPoints),
+    leftView(_leftView), 
+    rightView(_rightView), 
+    outputView(_outputView) {
+      // Nothing to do
+    }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator() (const team_member & thread) const {
+    int l = thread.league_rank() % numLeftFields;
+    int r = thread.team_rank();
+    int c = thread.league_rank() / numLeftFields;
+
+    Kokkos::View<float*, Kokkos::MemoryUnmanaged> shared_slice(thread.team_shmem(), numPoints);
+    for (int p = thread.team_rank(); p < numPoints; p += thread.team_size()) {
+      shared_slice(p) = leftView(c, l, p);
+    }
+    thread.team_barrier();
+
+    float sum = 0;
+    for (int p = 0; p < numPoints; ++p) {
+      sum += shared_slice(p) * rightView(c, p, r);
+    }
+    outputView(c, l, r) = sum;
+
+  }
+
+  size_t team_shmem_size( int team_size ) const {
+    return sizeof(float) * numPoints;
+  }
+};
+
+template <class DeviceType, class KokkosContractionData>
+double
+runKokkosSlicingTest(const unsigned int numberOfContractions,
+    const unsigned int numberOfRepeats,
+    const unsigned int contractionSize,
+    const unsigned int numLeftFields,
+    const unsigned int numRightFields,
+    const unsigned int memorySize,
+    const vector<float> & contractionData_LayoutRight_Right,
+    const vector<float> & contractionData_LayoutRight_Left,
+    const vector<float> & correctResults,
+    const string & kokkosFlavor,
+    const ClearCacheStyle clearCacheStyle,
+    const vector<int> & junkDataToClearTheCache,
+    size_t * junkDataCounter,
+    unsigned int * const totalNumberOfRepeats,
+    vector<float> * contractionResults) {
+
+  const unsigned int junkDataSize = junkDataToClearTheCache.size();
+
+  typedef typename KokkosContractionData::HostMirror     KokkosContractionData_Host;
+  typedef Kokkos::View<float***, Kokkos::LayoutRight,
+          DeviceType>              KokkosContractionResults;
+  typedef typename KokkosContractionResults::HostMirror  KokkosContractionResults_Host;
+  typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
+  typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
+
+  const unsigned int numPoints = contractionSize;
+
+
+
+  KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
+      numberOfContractions,
+      numPoints,
+      numRightFields);
+  KokkosContractionData_Host kokkosContractionData_Right =
+    Kokkos::create_mirror_view(dev_kokkosContractionData_Right);
+
+  KokkosContractionData dev_kokkosContractionData_Left("kokkos data B",
+      numberOfContractions,
+      numLeftFields,
+      numPoints);
+  KokkosContractionData_Host kokkosContractionData_Left =
+    Kokkos::create_mirror_view(dev_kokkosContractionData_Left);
+
+  KokkosContractionResults dev_kokkosContractionResults("kokkos dot product results",
+      numberOfContractions,
+      numLeftFields,
+      numRightFields);
+  KokkosContractionResults_Host kokkosContractionResults =
+    Kokkos::create_mirror_view(dev_kokkosContractionResults);
+
+  KokkosJunkVector dev_kokkosJunkDataToClearTheCache("kokkos junk data to clear cache",
+      junkDataSize);
+  KokkosJunkVector_Host kokkosJunkDataToClearTheCache =
+    Kokkos::create_mirror_view(dev_kokkosJunkDataToClearTheCache);
+
+
+
+  for (int cl = 0; cl < numberOfContractions; ++cl) {
+    for (int qp = 0; qp < numPoints; ++qp) {
+      for(int rbf = 0; rbf < numRightFields; ++rbf) {
+        kokkosContractionData_Right(cl, qp, rbf) =
+          contractionData_LayoutRight_Right.at(cl*numRightFields*numPoints
+              + rbf*numPoints + qp);
+      }
+      for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+        kokkosContractionData_Left(cl, lbf, qp) =
+          contractionData_LayoutRight_Left.at(cl*numLeftFields*numPoints +
+              lbf*numPoints + qp);
+      }
+    }
+  }
+
+
+  /*
+
+  // copy the data into the device views and ship them over
+  for (unsigned int contractionIndex = 0;
+  contractionIndex < numberOfContractions; ++contractionIndex) {
+  for (unsigned int entryIndex = 0;
+  entryIndex < contractionSize; ++entryIndex) {
+  kokkosContractionData_Right(contractionIndex, entryIndex) =
+  contractionData_LayoutRight_Right[contractionIndex * contractionSize +
+  entryIndex];
+  kokkosContractionData_Left(contractionIndex, entryIndex) =
+  contractionData_LayoutRight_Left[contractionIndex * contractionSize +
+  entryIndex];
+  }
+  }*/
+  Kokkos::deep_copy(dev_kokkosContractionData_Right, kokkosContractionData_Right);
+  Kokkos::deep_copy(dev_kokkosContractionData_Left, kokkosContractionData_Left);
+
+  // copy the data into the device views and ship them over
+  for (unsigned int junkDataIndex = 0;
+      junkDataIndex < junkDataSize; ++junkDataIndex) {
+    kokkosJunkDataToClearTheCache(junkDataIndex) =
+      junkDataToClearTheCache[junkDataIndex];
+  }
+  Kokkos::deep_copy(dev_kokkosJunkDataToClearTheCache, kokkosJunkDataToClearTheCache);
+
+  KokkosFunctor_ClearCache<DeviceType,
+    KokkosJunkVector>
+      kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
+
+
+  // breaking formatting convention because holy freak that's long
+  CFFS_Slicing_TeamFunctor<KokkosContractionData,
+    KokkosContractionData,
+    KokkosContractionResults>
+      contractionFunctor(numberOfContractions,
+          numLeftFields,
+          numRightFields,
+          numPoints,
+          dev_kokkosContractionData_Left,
+          dev_kokkosContractionData_Right,
+          dev_kokkosContractionResults);
+
+  const team_policy slicing_policy(
+      numberOfContractions*numLeftFields , numRightFields );
+
+
+  timespec tic;
+  double totalElapsedTime = 0;
+  for (unsigned int repeatIndex = 0;
+      repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+          repeatIndex == 1) ||
+        clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      tic = getTimePoint();
+    }
+
+    // actually do the calculation
+    Kokkos::parallel_for(slicing_policy, contractionFunctor);
+
+    // wait for this repeat's results to finish
+    Kokkos::fence();
+
+
+    if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      const float elapsedTime = getElapsedTime(tic, toc);
+      totalElapsedTime += elapsedTime;
+
+      // attempt to scrub all levels of cache
+      size_t partialJunkDataCounter = 0;
+      Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+          partialJunkDataCounter);
+      *junkDataCounter += partialJunkDataCounter;
+    }
+  }
+  if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+    const timespec toc = getTimePoint();
+    totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+  }
+  // copy over the results from the device to the host
+  Kokkos::deep_copy(kokkosContractionResults, dev_kokkosContractionResults);
+  for (unsigned int contractionIndex = 0;
+      contractionIndex < numberOfContractions; ++contractionIndex) {
+    for (int lbf = 0; lbf < numLeftFields; lbf++) {
+      for (int rbf = 0; rbf < numRightFields; rbf++) {
+        contractionResults->at(contractionIndex*numLeftFields*numRightFields+lbf*numRightFields+rbf) =
+          kokkosContractionResults(contractionIndex, lbf, rbf);
+      }
+    }
+  }
+
+  // check the results
+  checkAnswer(correctResults, *contractionResults,
+      numberOfContractions*numLeftFields*numRightFields, memorySize,
+      kokkosFlavor);
+  // scrub the results
+  std::fill(contractionResults->begin(),
+      contractionResults->end(),
+      std::numeric_limits<float>::quiet_NaN());
+
+  return totalElapsedTime;
+}
+
+
+template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
+struct CFFS_Tiling_TeamFunctor {
+  const unsigned int numCells;
+  const unsigned int numLeftFields;
+  const unsigned int numRightFields;
+  const unsigned int numPoints;
+  LeftInputViewType leftView;
+  RightInputViewType rightView;
+  OutputViewType outputView;
+  const unsigned int tile_size;
+
+
+  CFFS_Tiling_TeamFunctor(const unsigned int _numCells, 
+      const unsigned int _numLeftFields,
+      const unsigned int _numRightFields, 
+      const unsigned int _numPoints,
+      LeftInputViewType _leftView, 
+      RightInputViewType _rightView, 
+      OutputViewType _outputView,
+      const unsigned int _tile_size) :
+    numCells(_numCells), 
+    numLeftFields(_numLeftFields), 
+    numRightFields(_numRightFields), 
+    numPoints(_numPoints),
+    leftView(_leftView), 
+    rightView(_rightView), 
+    outputView(_outputView),
+    tile_size(_tile_size)
+    {
+      // Nothing to do
+    }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator() (const team_member & thread) const {
+    // Num teams is (numLeftField * numRightField)/tile_size^2 * numCells
+    int numTiles = thread.league_size() / numCells;
+    int c = thread.league_rank() / numTiles;
+    int tilePosition = thread.league_rank() % numTiles;
+    int lTile = tilePosition / ((numRightFields-1) / tile_size + 1);
+    int rTile = tilePosition % ((numRightFields-1) / tile_size + 1);
+
+    int tileCol = thread.team_rank() % tile_size;
+    int tileRow = thread.team_rank() / tile_size;
+    
+    int l = lTile*tile_size + tileRow;
+    int r = rTile*tile_size + tileCol;
+
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> left_tile(thread.team_shmem(), tile_size, tile_size);
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> right_tile(thread.team_shmem(), tile_size, tile_size);
+
+    float totalSum = 0;
+    for (int tileIndex = 0; tileIndex < ((numPoints-1)/ tile_size) + 1; ++tileIndex) {
+	if (tileIndex*tile_size + tileCol < numPoints && l < numLeftFields) {
+	    left_tile(tileRow, tileCol) = leftView(c, l, tileIndex*tile_size + tileCol);
+	}
+	else {
+	    left_tile(tileRow, tileCol) = 0.0;
+	}
+	if (tileIndex*tile_size + tileRow < numPoints && r < numRightFields) {
+	    right_tile(tileRow, tileCol) = rightView(c, tileIndex*tile_size + tileRow, r);
+	}
+	else {
+	    right_tile(tileRow, tileCol) = 0.0;
+	}
+	thread.team_barrier();
+
+	float sum = 0;
+	for (int i = 0; i < tile_size; ++i) {
+	    sum += left_tile(tileRow, i) * right_tile(i, tileCol);
+	}
+	totalSum += sum;
+	
+	thread.team_barrier();
+    }
+
+    if (l < numLeftFields && r < numRightFields) {
+	outputView(c, l, r) = totalSum;
+    }
+  }
+
+  size_t team_shmem_size( int team_size ) const {
+    return sizeof(float) * team_size * 2;
+  }
+
+};
+
+template <class DeviceType, class KokkosContractionData>
+double
+runKokkosTilingTest(const unsigned int numberOfContractions,
+    const unsigned int numberOfRepeats,
+    const unsigned int contractionSize,
+    const unsigned int numLeftFields,
+    const unsigned int numRightFields,
+    const unsigned int memorySize,
+    const vector<float> & contractionData_LayoutRight_Right,
+    const vector<float> & contractionData_LayoutRight_Left,
+    const vector<float> & correctResults,
+    const string & kokkosFlavor,
+    const ClearCacheStyle clearCacheStyle,
+    const vector<int> & junkDataToClearTheCache,
+    size_t * junkDataCounter,
+    unsigned int * const totalNumberOfRepeats,
+    vector<float> * contractionResults,
+    const unsigned int tile_size) {
+
+  const unsigned int junkDataSize = junkDataToClearTheCache.size();
+
+  typedef typename KokkosContractionData::HostMirror     KokkosContractionData_Host;
+  typedef Kokkos::View<float***, Kokkos::LayoutRight,
+          DeviceType>              KokkosContractionResults;
+  typedef typename KokkosContractionResults::HostMirror  KokkosContractionResults_Host;
+  typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
+  typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
+
+  const unsigned int numPoints = contractionSize;
+
+
+
+  KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
+      numberOfContractions,
+      numPoints,
+      numRightFields);
+  KokkosContractionData_Host kokkosContractionData_Right =
+    Kokkos::create_mirror_view(dev_kokkosContractionData_Right);
+
+  KokkosContractionData dev_kokkosContractionData_Left("kokkos data B",
+      numberOfContractions,
+      numLeftFields,
+      numPoints);
+  KokkosContractionData_Host kokkosContractionData_Left =
+    Kokkos::create_mirror_view(dev_kokkosContractionData_Left);
+
+  KokkosContractionResults dev_kokkosContractionResults("kokkos dot product results",
+      numberOfContractions,
+      numLeftFields,
+      numRightFields);
+  KokkosContractionResults_Host kokkosContractionResults =
+    Kokkos::create_mirror_view(dev_kokkosContractionResults);
+
+  KokkosJunkVector dev_kokkosJunkDataToClearTheCache("kokkos junk data to clear cache",
+      junkDataSize);
+  KokkosJunkVector_Host kokkosJunkDataToClearTheCache =
+    Kokkos::create_mirror_view(dev_kokkosJunkDataToClearTheCache);
+
+
+
+  for (int cl = 0; cl < numberOfContractions; ++cl) {
+    for (int qp = 0; qp < numPoints; ++qp) {
+      for(int rbf = 0; rbf < numRightFields; ++rbf) {
+        kokkosContractionData_Right(cl, qp, rbf) =
+          contractionData_LayoutRight_Right.at(cl*numRightFields*numPoints
+              + rbf*numPoints + qp);
+      }
+      for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+        kokkosContractionData_Left(cl, lbf, qp) =
+          contractionData_LayoutRight_Left.at(cl*numLeftFields*numPoints +
+              lbf*numPoints + qp);
+      }
+    }
+  }
+
+
+  /*
+
+  // copy the data into the device views and ship them over
+  for (unsigned int contractionIndex = 0;
+  contractionIndex < numberOfContractions; ++contractionIndex) {
+  for (unsigned int entryIndex = 0;
+  entryIndex < contractionSize; ++entryIndex) {
+  kokkosContractionData_Right(contractionIndex, entryIndex) =
+  contractionData_LayoutRight_Right[contractionIndex * contractionSize +
+  entryIndex];
+  kokkosContractionData_Left(contractionIndex, entryIndex) =
+  contractionData_LayoutRight_Left[contractionIndex * contractionSize +
+  entryIndex];
+  }
+  }*/
+  Kokkos::deep_copy(dev_kokkosContractionData_Right, kokkosContractionData_Right);
+  Kokkos::deep_copy(dev_kokkosContractionData_Left, kokkosContractionData_Left);
+
+  // copy the data into the device views and ship them over
+  for (unsigned int junkDataIndex = 0;
+      junkDataIndex < junkDataSize; ++junkDataIndex) {
+    kokkosJunkDataToClearTheCache(junkDataIndex) =
+      junkDataToClearTheCache[junkDataIndex];
+  }
+  Kokkos::deep_copy(dev_kokkosJunkDataToClearTheCache, kokkosJunkDataToClearTheCache);
+
+  KokkosFunctor_ClearCache<DeviceType,
+    KokkosJunkVector>
+      kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
+
+
+  // breaking formatting convention because holy freak that's long
+  CFFS_Tiling_TeamFunctor<KokkosContractionData,
+    KokkosContractionData,
+    KokkosContractionResults>
+      contractionFunctor(numberOfContractions,
+          numLeftFields,
+          numRightFields,
+          numPoints,
+          dev_kokkosContractionData_Left,
+          dev_kokkosContractionData_Right,
+          dev_kokkosContractionResults,
+          tile_size);
+
+  const team_policy tiling_policy(
+      numberOfContractions
+      * ((numLeftFields-1/tile_size) +1) 
+      * ((numRightFields-1/tile_size) +1) , 
+      tile_size*tile_size );
+
+
+  timespec tic;
+  double totalElapsedTime = 0;
+  for (unsigned int repeatIndex = 0;
+      repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+          repeatIndex == 1) ||
+        clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      tic = getTimePoint();
+    }
+
+    // actually do the calculation
+    Kokkos::parallel_for(tiling_policy, contractionFunctor);
+
+    // wait for this repeat's results to finish
+    Kokkos::fence();
+
+
+    if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      const float elapsedTime = getElapsedTime(tic, toc);
+      totalElapsedTime += elapsedTime;
+
+      // attempt to scrub all levels of cache
+      size_t partialJunkDataCounter = 0;
+      Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+          partialJunkDataCounter);
+      *junkDataCounter += partialJunkDataCounter;
+    }
+  }
+  if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+    const timespec toc = getTimePoint();
+    totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+  }
+  // copy over the results from the device to the host
+  Kokkos::deep_copy(kokkosContractionResults, dev_kokkosContractionResults);
+  for (unsigned int contractionIndex = 0;
+      contractionIndex < numberOfContractions; ++contractionIndex) {
+    for (int lbf = 0; lbf < numLeftFields; lbf++) {
+      for (int rbf = 0; rbf < numRightFields; rbf++) {
+        contractionResults->at(contractionIndex*numLeftFields*numRightFields+lbf*numRightFields+rbf) =
+          kokkosContractionResults(contractionIndex, lbf, rbf);
+      }
+    }
+  }
+
+  // check the results
+  checkAnswer(correctResults, *contractionResults,
+      numberOfContractions*numLeftFields*numRightFields, memorySize,
+      kokkosFlavor);
+  // scrub the results
+  std::fill(contractionResults->begin(),
+      contractionResults->end(),
+      std::numeric_limits<float>::quiet_NaN());
+
+  return totalElapsedTime;
+}
+
+
+
+//#endif // ENABLE_KOKKOS
 
 
 
@@ -1030,22 +1534,23 @@ void contractFieldFieldScalarSerial(vector<float> & outputFields, // c, l, r
 
 int main(int argc, char* argv[]) {
 
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   Kokkos::initialize(argc, argv);
-#endif
+//#endif
 
   // ===============================================================
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{8, 16, 32, 64, 128, 512, 1024, 2048}};
+    {{8, 16, 32, 64, 128, 512, 1024/*, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
+  const unsigned int tile_size = 16;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 5 : 250;
+    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 2 : 250;
   const string machineName = "shadowfax";
   const string prefix = "data/ArrayOfContractions_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1111,7 +1616,7 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     cudaSwitchingTimesMatrix(numberOfContractionSizes,
                              vector<float>(numberOfMemorySizes, 0));
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfContractionSizes,
                          vector<float>(numberOfMemorySizes, 0));
@@ -1121,7 +1626,15 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     kokkosTeamReductionTimesMatrix(numberOfContractionSizes,
 				     vector<float>(numberOfMemorySizes, 0));
-#endif
+
+  vector<vector<float> >
+    kokkosSlicingTimesMatrix(numberOfContractionSizes,
+				     vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    kokkosTilingTimesMatrix(numberOfContractionSizes,
+				     vector<float>(numberOfMemorySizes, 0));
+//#endif
 
   // create some junk data to use in clearing the cache
   size_t junkDataCounter = 0;
@@ -1493,7 +2006,7 @@ int main(int argc, char* argv[]) {
       // ***************** </do cuda reductions> ***********************
       // ===============================================================
     */
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1536,7 +2049,7 @@ int main(int argc, char* argv[]) {
                                               contractionData_LayoutRight_Right,
                                               contractionData_LayoutRight_Left,
                                               correctResults,
-                                              string("Kokkos Team Reduction"),
+                                              string("Kokkos cuda"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
@@ -1560,19 +2073,67 @@ int main(int argc, char* argv[]) {
                                               contractionData_LayoutRight_Right,
                                               contractionData_LayoutRight_Left,
                                               correctResults,
-                                              string("Kokkos cuda"),
+                                              string("Kokkos Team Reduction"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
                                               &contractionResults);
       }
-
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float***, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosContractionData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosSlicingTest<DeviceType,
+                        KokkosContractionData>(numberOfContractions,
+                                              numberOfRepeats,
+                                              contractionSize,
+					      numBasis,
+					      numBasis,
+                                              memorySize,
+                                              contractionData_LayoutRight_Right,
+                                              contractionData_LayoutRight_Left,
+                                              correctResults,
+                                              string("Kokkos Slicing"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &contractionResults);
+      }
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float***, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosContractionData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosTilingTest<DeviceType,
+                        KokkosContractionData>(numberOfContractions,
+                                              numberOfRepeats,
+                                              contractionSize,
+					      numBasis,
+					      numBasis,
+                                              memorySize,
+                                              contractionData_LayoutRight_Right,
+                                              contractionData_LayoutRight_Left,
+                                              correctResults,
+                                              string("Kokkos Tiling"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &contractionResults,
+                                              tile_size);
+      }
 
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
-#endif // ENABLE_KOKKOS
+//#endif // ENABLE_KOKKOS
 
       contractionSizeMatrix[contractionSizeIndex][memorySizeIndex] =
         contractionSize;
@@ -1620,21 +2181,24 @@ fprintf(stderr,"printed cuda times");
                          prefix + string("cudaReductionTimes") + suffix);
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
                          prefix + string("kokkosOmpTimes") + suffix);
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
   writeTimesMatrixToFile(kokkosTeamReductionTimesMatrix,
                          prefix + string("kokkosTeamReductionTimes") + suffix);
+  writeTimesMatrixToFile(kokkosSlicingTimesMatrix,
+                         prefix + string("kokkosSlicingTimes") + suffix);
+  writeTimesMatrixToFile(kokkosTilingTimesMatrix,
+                         prefix + string("kokkosTilingTimes") + suffix);
+//#endif
 
-#endif
-
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   //const unsigned int numberOfMethods = 7;
-#else
+//#else
   //const unsigned int numberOfMethods = 5;
-#endif
+//#endif
 /*
   const size_t junkDataSum =
     std::accumulate(junkDataToClearTheCache.begin(),
@@ -1682,9 +2246,9 @@ fprintf(stderr,"printed cuda times");
     exit(1);
   }
 */
-#ifdef ENABLE_KOKKOS
+//#ifdef ENABLE_KOKKOS
   Kokkos::finalize();
-#endif
+//#endif
 
   return 0;
 }
