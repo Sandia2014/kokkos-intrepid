@@ -116,7 +116,7 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
                                  float * dev_tensorResults) {
 
   unsigned int myID = blockIdx.x * blockDim.x + threadIdx.x;
-  while (myID < numberOfTensors * numLeftFields * numRightFields) {
+  while (myID < (numberOfTensors * numLeftFields * numRightFields)) {
     float sum = 0;
     int myCell = myID / (numLeftFields * numRightFields);
     int matrixIndex = myID % (numLeftFields * numRightFields);
@@ -401,7 +401,7 @@ runCudaTest(const CudaStyle cudaStyle,
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *tensorResults,
-              tensorSize, memorySize,
+              tensorSize*numLeftFields*numRightFields, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
