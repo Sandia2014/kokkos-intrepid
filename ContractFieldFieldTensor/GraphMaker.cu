@@ -116,7 +116,7 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
                                  float * dev_tensorResults) {
 
   unsigned int myID = blockIdx.x * blockDim.x + threadIdx.x;
-  while (myID < numberOfTensors) {
+  while (myID < numberOfTensors * numLeftFields * numRightFields) {
     float sum = 0;
     int myCell = myID / (numLeftFields * numRightFields);
     int matrixIndex = myID % (numLeftFields * numRightFields);
@@ -409,7 +409,7 @@ runCudaTest(const CudaStyle cudaStyle,
             tensorResults->end(),
             std::numeric_limits<float>::quiet_NaN());
   checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults->at(0),
-                            numberOfTensors * sizeof(float),
+                            numberOfTensors * numLeftFields*numRightFields*sizeof(float),
                             cudaMemcpyHostToDevice));
 
   return totalElapsedTime;
@@ -1281,7 +1281,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-      
+
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
 
@@ -1311,7 +1311,7 @@ int main(int argc, char* argv[]) {
                       &tensorResults);
 
       }
-      
+
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
