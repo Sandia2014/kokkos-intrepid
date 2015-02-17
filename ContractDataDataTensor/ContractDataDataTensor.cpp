@@ -201,25 +201,27 @@ struct ContractDataDataTensor_TeamFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const team_member& thread) const {
 
-    unsigned int elementIndex = thread.league_rank();
+    const unsigned int elementIndex = thread.league_rank();
+    const unsigned int dim = thread.team_rank();
 
-    float sum;
-    float tsum =0;
+    float sum = 0;
+    float tsum = 0;
+
+
     for (unsigned int qp=0; qp < _numPoints; ++qp) {
-
-      sum = 0;
-      Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2),
-          [&] (const unsigned int& dim, float& sum) {
-              sum +=  _leftInput(elementIndex, qp, dim/_dim2, dim%_dim2) *
-                      _rightInput(elementIndex, qp, dim/_dim2, dim%_dim2);
-        }, sum);
-
-      thread.team_barrier();
-
-      tsum += sum;
-
+      sum +=  _leftInput(elementIndex, qp, dim/_dim2, dim%_dim2) *
+        _rightInput(elementIndex, qp, dim/_dim2, dim%_dim2);
     }
 
+    //sum = 0;
+
+    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2),
+        [&] (const unsigned int& dim, float& localsum) {
+        localsum += sum;
+      }, tsum);
+
+
+    // FIXME everyone is writing this?
     _output(elementIndex) = tsum;
   }
 
