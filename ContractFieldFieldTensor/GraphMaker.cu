@@ -277,7 +277,7 @@ runCudaTest(const CudaStyle cudaStyle,
 
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
-        (unsigned int)ceil(numberOfTensors*numLeftFields*numRightFields/float(numberOfThreadsPerBlock)));
+        (unsigned int)ceil(numberOfTensors*numRightFields*numLeftFields/float(numberOfThreadsPerBlock)));
 
   // Format the data the way we want and then copy it to the GPU
   vector<float> contractionData_GPURight(tensorData_Right.size());
@@ -401,7 +401,7 @@ runCudaTest(const CudaStyle cudaStyle,
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *tensorResults,
-              tensorSize*numLeftFields*numRightFields, memorySize,
+              tensorSize, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
