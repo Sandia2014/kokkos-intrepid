@@ -215,13 +215,10 @@ struct ContractDataDataTensor_TeamFunctor {
       }
     }
 
-    //sum = 0;
-
     Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim2),
         [&] (const unsigned int& dim, float& localsum) {
         localsum += sum;
       }, tsum);
-
 
     // FIXME everyone is writing this?
     _output(elementIndex) = tsum;
@@ -506,7 +503,7 @@ int main(int argc, char* argv[]) {
     //{{8, 16, 32, 64, 128, 256, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
-  const unsigned int dimSize = 5;
+  const unsigned int dimSize = 10;
 
 
 #ifdef RAW_CUDA
