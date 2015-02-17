@@ -273,7 +273,7 @@ runCudaTest(const CudaStyle cudaStyle,
             vector<float> * const contractionResults) {
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
-        (unsigned int)ceil(numberOfContractions/float(numberOfThreadsPerBlock)));
+        (unsigned int)ceil(numberOfContractions*numBasis*numBasis/float(numberOfThreadsPerBlock)));
     
     // Format the data the way we want and then copy it to the GPU      
     vector<float> contractionData_GPURight(contractionData_Right.size());
