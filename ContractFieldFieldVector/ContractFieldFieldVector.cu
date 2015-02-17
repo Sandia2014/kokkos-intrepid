@@ -132,6 +132,7 @@ doCudaContractions_Independent_kernel(const unsigned int numberOfContractions,
     } // P-loop
 
     dev_contractionResults[cellNum * l * r + leftFieldNum * r + rightFieldNum] = tmpVal;
+    contractionIndex += blockDim.x * gridDim.x;
   }
 }
 
@@ -276,18 +277,35 @@ runCudaTest(const CudaStyle cudaStyle,
         (unsigned int)ceil((numCells*l*r) /float(numberOfThreadsPerBlock)));
 
    // Format the data the way we want and then copy it to the GPU
-   vector<float> contractionData_GPURight(contractionData_Right.size());
-   vector<float> contractionData_GPULeft(contractionData_Right.size());
+   vector<float> contractionData_GPURight(contractionData_A.size());
+   vector<float> contractionData_GPULeft(contractionData_A.size());
 
    // copy the data into the device views and ship them over
    for (unsigned int dotProductIndex = 0;
-     dotProductIndex < numCells*l*r*q*i; ++dotProductIndex) {
+     dotProductIndex < numCells*l*q*i; ++dotProductIndex) {
       contractionData_GPURight[dotProductIndex] =
       contractionData_A[dotProductIndex];
 
       contractionData_GPULeft[dotProductIndex] =
       contractionData_B[dotProductIndex];
    }
+
+    float * dev_contractionData_GPURight;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_GPURight,
+                              numCells * q*i *r* sizeof(float)));
+    checkCudaError(cudaMemcpy(dev_contractionData_GPURight,
+                              &contractionData_GPURight[0],
+                              numCells*q*i*r* sizeof(float),
+                              cudaMemcpyHostToDevice));
+			      
+   float * dev_contractionData_GPULeft;
+   checkCudaError(cudaMalloc((void **) &dev_contractionData_GPULeft,
+			  numCells * q*i*l * sizeof(float)));
+   checkCudaError(cudaMemcpy(dev_contractionData_GPULeft,
+			  &contractionData_GPULeft[0],
+			  numCells*q*i*l * sizeof(float),
+			  cudaMemcpyHostToDevice));
+
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -299,15 +317,15 @@ runCudaTest(const CudaStyle cudaStyle,
         clearCacheStyle == ClearCacheAfterEveryRepeat) {
       tic = getTimePoint();
     }
-
+    //fprintf(stderr, "launched cuda kernel");
     // do the actual calculation
     if (cudaStyle == CudaStyle_Independent) {
       doCudaContractions_Independent_kernel<<<numberOfBlocks,
-        numberOfThreadsPerBlock>>>(numCells,
+        numberOfThreadsPerBlock>>>(numCells*l*r,
                                    maxNumberOfContractions,
                                    contractionSize,
-                                   contractionData_GPURight,
-                                   contractionData_GPULeft,
+                                   dev_contractionData_GPURight,
+                                   dev_contractionData_GPULeft,
                                    dev_contractionResults,
                                    l,
                                    r,
@@ -318,8 +336,8 @@ runCudaTest(const CudaStyle cudaStyle,
         numberOfThreadsPerBlock,
         numberOfThreadsPerBlock * sizeof(float)>>>(numCells,
                                                    contractionSize,
-                                                   contractionData_GPURight,
-                                                   contractionData_GPULeft,
+                                                   dev_contractionData_GPURight,
+                                                   dev_contractionData_GPULeft,
                                                    dev_contractionResults);
     } else {
       fprintf(stderr, "unknown cuda style\n");
@@ -329,6 +347,8 @@ runCudaTest(const CudaStyle cudaStyle,
     // wait for the kernel launch
     checkCudaError(cudaPeekAtLastError());
     checkCudaError(cudaDeviceSynchronize());
+
+    //fprintf(stderr, "returned from cuda kernel");
     if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
       const timespec toc = getTimePoint();
       const float elapsedTime = getElapsedTime(tic, toc);
@@ -367,6 +387,8 @@ runCudaTest(const CudaStyle cudaStyle,
   checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults->at(0),
                             numCells*r*l* sizeof(float),
                             cudaMemcpyHostToDevice));
+  checkCudaError(cudaFree(dev_contractionData_GPULeft));
+  checkCudaError(cudaFree(dev_contractionData_GPURight));
 
   return totalElapsedTime;
 }
@@ -709,8 +731,7 @@ int main(int argc, char* argv[]) {
   unsigned int cellSize;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
-  const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 10 : 250;
+  const unsigned int numberOfRepeats = 5;
   const string machineName = "shadowfax";
   const string prefix = "data/ArrayOfContractions_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -996,7 +1017,7 @@ int main(int argc, char* argv[]) {
 
         timespec tic;
         for (unsigned int repeatIndex = 0;
-             repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+            repeatIndex <  + 1; ++repeatIndex) {
           ++totalNumberOfRepeats;
           if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
                repeatIndex == 1) ||
@@ -1070,7 +1091,7 @@ int main(int argc, char* argv[]) {
 
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
-
+	//fprintf(stderr, "about to try cuda");
         cudaIndependent_TimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTest(CudaStyle_Independent,
                       numberOfThreadsPerBlock,
@@ -1094,6 +1115,7 @@ int main(int argc, char* argv[]) {
                       r,
                       q,
                       i);
+//	fprintf(stderr,"done with cuda");
 
       }
 
@@ -1230,10 +1252,12 @@ int main(int argc, char* argv[]) {
            "in %7.2f seconds\n", numberOfRepeats,
            contractionSize, thisSizesElapsedTime);
 
+	   /*
     checkCudaError(cudaFree(dev_contractionData_LayoutLeft_A));
     checkCudaError(cudaFree(dev_contractionData_LayoutLeft_B));
     checkCudaError(cudaFree(dev_contractionData_LayoutRight_A));
     checkCudaError(cudaFree(dev_contractionData_LayoutRight_B));
+    */
     checkCudaError(cudaFree(dev_contractionResults));
 
   }
@@ -1277,6 +1301,7 @@ int main(int argc, char* argv[]) {
                               cudaMemcpyDeviceToHost));
     junkDataCounter += temp;
   }
+  /*
   if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
     const size_t expectedDataCounter = 0;
     if (junkDataCounter != expectedDataCounter) {
@@ -1308,7 +1333,7 @@ int main(int argc, char* argv[]) {
             expectedTotalNumberOfRepeats, float(expectedTotalNumberOfRepeats));
     exit(1);
   }
-
+*/
 #ifdef ENABLE_KOKKOS
   Kokkos::finalize();
 #endif
