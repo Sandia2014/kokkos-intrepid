@@ -75,7 +75,7 @@ CC_FLAGS        += -std=c++11 -fopenmp
 NVCC_FLAGS      += -std=c++11
 NVCC_LD_FLAGS   += -lgomp
 
-TARGETS = GraphMaker CFFS_teams TeamKokkos 
+TARGETS = CFFS_teams TeamKokkos 
 
 all: $(TARGETS)
 
