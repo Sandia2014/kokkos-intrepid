@@ -207,10 +207,13 @@ struct ContractDataDataTensor_TeamFunctor {
     float sum = 0;
     float tsum = 0;
 
+    const unsigned int dim1 = dim/_dim2;
+    const unsigned int dim2 = dim%_dim2;
+
 
     for (unsigned int qp=0; qp < _numPoints; ++qp) {
-      sum +=  _leftInput(elementIndex, qp, dim/_dim2, dim%_dim2) *
-        _rightInput(elementIndex, qp, dim/_dim2, dim%_dim2);
+      sum +=  _leftInput(elementIndex, qp, dim1, dim2) *
+        _rightInput(elementIndex, qp, dim1, dim2);
     }
 
     //sum = 0;
@@ -1001,7 +1004,7 @@ int main(int argc, char* argv[]) {
 
       {
         typedef Kokkos::Cuda                               DeviceType;
-        typedef Kokkos::View<float****, Kokkos::LayoutLeft,
+        typedef Kokkos::View<float****, Kokkos::LayoutRight,
                              DeviceType>                   KokkosInputData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
