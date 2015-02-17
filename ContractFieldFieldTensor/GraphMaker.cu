@@ -297,8 +297,8 @@ runCudaTest(const CudaStyle cudaStyle,
       for (int iTens1 = 0; iTens1 < tens1; ++iTens1) {
         for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
           for(int rbf = 0; rbf < numRightFields; ++rbf) {
-            contractionData_GPURight[cl*cROff + qp*numRightFields*tens1*tens2+
-                    iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf] =
+            contractionData_GPURight[cl*numPoints*numRightFields*tens1*tens2 + qp*numRightFields*tens1*tens2+
+            iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf] =
             tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
             iTens1*tROff + iTens2*t2ROff];
           }
@@ -307,7 +307,6 @@ runCudaTest(const CudaStyle cudaStyle,
             iTens1*tOff + iTens2] =
             tensorData_Left[cl*cLOff + lbf*basisOff + qp*pLOff +
             iTens1*tOff + iTens2];
-          }
         }
       }
     }
@@ -401,7 +400,7 @@ runCudaTest(const CudaStyle cudaStyle,
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *tensorResults,
-              tensorSize*numLeftFields*numRightFields, memorySize,
+              tensorSize, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
