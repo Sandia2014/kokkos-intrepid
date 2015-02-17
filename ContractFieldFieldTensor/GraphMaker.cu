@@ -111,12 +111,12 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
                                  const unsigned int tens2,
                                  const unsigned int maxNumberOfTensors,
                                  const unsigned int tensorSize,
-                                 const float * const __restrict__ dev_tensorData_LayoutLeft_A,
-                                 const float * const __restrict__ dev_tensorData_LayoutLeft_B,
+                                 const float * const __restrict__ dev_tensorData_Left,
+                                 const float * const __restrict__ dev_tensorData_Right,
                                  float * dev_tensorResults) {
 
   unsigned int myID = blockIdx.x * blockDim.x + threadIdx.x;
-  while (myID < numberOfTensors) {
+  while (myID < (numberOfTensors * numLeftFields * numRightFields)) {
     float sum = 0;
     int myCell = myID / (numLeftFields * numRightFields);
     int matrixIndex = myID % (numLeftFields * numRightFields);
@@ -126,10 +126,10 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
     for (int qp = 0; qp < numPoints; qp++) {
       for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
         for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
-          sum += dev_tensorData_LayoutLeft_A[myCell*numLeftFields*numPoints*tens1*tens2 +
+          sum += dev_tensorData_Left[myCell*numLeftFields*numPoints*tens1*tens2 +
                           lbf*numPoints*tens1*tens2+ qp*tens1*tens2+ iTens1*tens2+iTens2] *
-                  dev_tensorData_LayoutLeft_B[myCell*numRightFields*numPoints*tens1*tens2 +
-                          rbf*numPoints*tens1*tens2+ qp*tens1*tens2+ iTens1*tens2+iTens2];
+                  dev_tensorData_Right[myCell*numRightFields*numPoints*tens1*tens2 +
+                           qp*tens1*tens2*numRightFields+iTens1*tens2*numRightFields+iTens2*numRightFields+rbf];
         }
       }
     }
@@ -268,8 +268,8 @@ runCudaTest(const CudaStyle cudaStyle,
             const ClearCacheStyle clearCacheStyle,
             const int * const dev_junkDataToClearTheCache,
             const unsigned int junkDataSize,
-            const float * const dev_tensorData_A,
-            const float * const dev_tensorData_B,
+            const vector<float> & tensorData_Right,
+            const vector<float> & tensorData_Left,
             int * const dev_junkDataCounter,
             unsigned int * const totalNumberOfRepeats,
             float * const dev_tensorResults,
@@ -277,7 +277,60 @@ runCudaTest(const CudaStyle cudaStyle,
 
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
-        (unsigned int)ceil(numberOfTensors/float(numberOfThreadsPerBlock)));
+        (unsigned int)ceil(numberOfTensors*numRightFields*numLeftFields/float(numberOfThreadsPerBlock)));
+
+  // Format the data the way we want and then copy it to the GPU
+  vector<float> contractionData_GPURight(tensorData_Right.size());
+  vector<float> contractionData_GPULeft(tensorData_Left.size());
+
+  int cLOff = numLeftFields*numPoints*tens1*tens2;
+  int cROff = numRightFields*numPoints*tens1*tens2;
+  int basisOff = numPoints*tens1*tens2;
+  int pLOff = tens1*tens2;
+  int pROff = tens1*tens2;
+  int tROff = tens2;
+  int t2ROff = 1;
+  int tOff = tens2;
+
+  for (int cl = 0; cl < numberOfTensors; ++cl) {
+    for (int qp = 0; qp < numPoints; ++qp) {
+      for (int iTens1 = 0; iTens1 < tens1; ++iTens1) {
+        for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
+          for(int rbf = 0; rbf < numRightFields; ++rbf) {
+            contractionData_GPURight[cl*cROff + qp*numRightFields*tens1*tens2+
+                    iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf] =
+            tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
+            iTens1*tROff + iTens2*t2ROff];
+          }
+          for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+            contractionData_GPULeft[cl*cLOff + lbf*basisOff + qp*pLOff +
+            iTens1*tOff + iTens2] =
+            tensorData_Left[cl*cLOff + lbf*basisOff + qp*pLOff +
+            iTens1*tOff + iTens2];
+          }
+        }
+      }
+    }
+  }
+
+  // Then copy it over
+  float * dev_contractionData_Right;
+  checkCudaError(cudaMalloc((void **) &dev_contractionData_Right,
+   numberOfTensors * numPoints * tens1 * tens2 * numRightFields * sizeof(float)));
+
+  checkCudaError(cudaMemcpy(dev_contractionData_Right,
+    &contractionData_GPURight[0], numberOfTensors * numPoints * tens1 * tens2 *
+    numRightFields * sizeof(float), cudaMemcpyHostToDevice));
+
+  float * dev_contractionData_Left;
+  checkCudaError(cudaMalloc((void **) &dev_contractionData_Left, numberOfTensors
+  * numPoints * tens1 * tens2 * numLeftFields * sizeof(float)));
+
+  checkCudaError(cudaMemcpy(dev_contractionData_Left, &contractionData_GPULeft[0],
+  numberOfTensors * numPoints * tens1 * tens2 * numLeftFields * sizeof(float),
+  cudaMemcpyHostToDevice));
+
+
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -301,16 +354,16 @@ runCudaTest(const CudaStyle cudaStyle,
                                    tens2,
                                    maxNumberOfTensors,
                                    tensorSize,
-                                   dev_tensorData_A,
-                                   dev_tensorData_B,
+                                   dev_contractionData_Left,
+                                   dev_contractionData_Right,
                                    dev_tensorResults);
     } else if (cudaStyle == CudaStyle_Reduction) {
       doCudaTensors_Reduction_kernel<<<numberOfBlocks,
         numberOfThreadsPerBlock,
         numberOfThreadsPerBlock * sizeof(float)>>>(numberOfTensors,
                                                    tensorSize,
-                                                   dev_tensorData_A,
-                                                   dev_tensorData_B,
+                                                   dev_contractionData_Left,
+                                                   dev_contractionData_Right,
                                                    dev_tensorResults);
     } else {
       fprintf(stderr, "unknown cuda style\n");
@@ -344,7 +397,7 @@ runCudaTest(const CudaStyle cudaStyle,
   }
   // copy over the results from the gpu to the cpu
   checkCudaError(cudaMemcpy(&tensorResults->at(0), dev_tensorResults,
-                            numberOfTensors * sizeof(float),
+                            numberOfTensors *numLeftFields*numRightFields* sizeof(float),
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *tensorResults,
@@ -356,7 +409,7 @@ runCudaTest(const CudaStyle cudaStyle,
             tensorResults->end(),
             std::numeric_limits<float>::quiet_NaN());
   checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults->at(0),
-                            numberOfTensors * sizeof(float),
+                            numberOfTensors * numLeftFields*numRightFields*sizeof(float),
                             cudaMemcpyHostToDevice));
 
   return totalElapsedTime;
@@ -378,10 +431,10 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      const ClearCacheStyle clearCacheStyle,
                      const int * const dev_junkDataToClearTheCache,
                      const unsigned int junkDataSize,
-                     const float * const dev_tensorData_LayoutLeft_A,
-                     const float * const dev_tensorData_LayoutLeft_B,
-                     const float * const dev_tensorData_LayoutRight_A,
-                     const float * const dev_tensorData_LayoutRight_B,
+                     const vector<float> & tensorData_LayoutLeft_A,
+                     const vector<float> & tensorData_LayoutLeft_B,
+                     const vector<float> & tensorData_LayoutRight_A,
+                     const vector<float> & tensorData_LayoutRight_B,
                      int * const dev_junkDataCounter,
                      unsigned int * const totalNumberOfRepeats,
                      float * const dev_tensorResults,
@@ -411,8 +464,8 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   clearCacheStyle,
                   dev_junkDataToClearTheCache,
                   junkDataSize,
-                  dev_tensorData_LayoutRight_A,
-                  dev_tensorData_LayoutRight_B,
+                  tensorData_LayoutRight_A,
+                  tensorData_LayoutRight_B,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
                   dev_tensorResults,
@@ -437,8 +490,8 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                   clearCacheStyle,
                   dev_junkDataToClearTheCache,
                   junkDataSize,
-                  dev_tensorData_LayoutLeft_A,
-                  dev_tensorData_LayoutLeft_B,
+                  tensorData_LayoutLeft_A,
+                  tensorData_LayoutLeft_B,
                   dev_junkDataCounter,
                   totalNumberOfRepeats,
                   dev_tensorResults,
@@ -1019,6 +1072,7 @@ int main(int argc, char* argv[]) {
 
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
+    /*
     float * dev_tensorData_LayoutRight_A;
     checkCudaError(cudaMalloc((void **) &dev_tensorData_LayoutRight_A,
                               maxNumberOfTensors * tensorSize * sizeof(float)));
@@ -1033,12 +1087,14 @@ int main(int argc, char* argv[]) {
                               &tensorData_LayoutRight_B[0],
                               maxNumberOfTensors * tensorSize * sizeof(float),
                               cudaMemcpyHostToDevice));
+    */
     float * dev_tensorResults;
     checkCudaError(cudaMalloc((void **) &dev_tensorResults,
                               maxNumberOfTensors *numLeftFields*numRightFields*sizeof(float)));
     checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults[0],
                               maxNumberOfTensors*numLeftFields*numRightFields*sizeof(float),
                               cudaMemcpyHostToDevice));
+    /*
     // make and populate the LayoutLeft versions
     float * dev_tensorData_LayoutLeft_A;
     checkCudaError(cudaMalloc((void **) &dev_tensorData_LayoutLeft_A,
@@ -1054,7 +1110,7 @@ int main(int argc, char* argv[]) {
                               &tensorData_LayoutLeft_B[0],
                               maxNumberOfTensors * tensorSize * sizeof(float),
                               cudaMemcpyHostToDevice));
-
+    */
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
          memorySizeIndex < numberOfMemorySizes;
@@ -1225,6 +1281,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
 
@@ -1246,14 +1303,15 @@ int main(int argc, char* argv[]) {
                       clearCacheStyle,
                       dev_junkDataToClearTheCache,
                       junkDataSize,
-                      dev_tensorData_LayoutLeft_A,
-                      dev_tensorData_LayoutLeft_B,
+                      tensorData_LayoutRight_A,
+                      tensorData_LayoutRight_B,
                       dev_junkDataCounter,
                       &totalNumberOfRepeats,
                       dev_tensorResults,
                       &tensorResults);
 
       }
+
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
