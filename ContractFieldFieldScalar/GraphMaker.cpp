@@ -803,13 +803,29 @@ struct CFFS_Reduction_TeamFunctor {
     int matrixCol = matrixIndex % numRightFields;
 
     float sum = 0;
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, numPoints), 
-        [&] (const unsigned int& i, float& sum) {
-          sum += leftView(myMatrix, matrixRow, i) 
-                 * rightView(myMatrix, i, matrixCol);
-        }, 
-        sum);
-    outputView(myMatrix, matrixRow, matrixCol) = sum;
+    if (numPoints <= 32) {
+	Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()),
+	    [&] (const unsigned int& i, float& sum) {
+	    sum += leftView(myMatrix, matrixRow, i) 
+		* rightView(myMatrix, i, matrixCol);
+	},
+	sum);
+	outputView(myMatrix, matrixRow, matrixCol) = sum;
+    }
+
+    else {
+	Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, numPoints), 
+		[&] (const unsigned int& i, float& sum) {
+		int j = i;
+		while (j < numPoints) {
+		    sum += leftView(myMatrix, matrixRow, j) 
+			* rightView(myMatrix, j, matrixCol);
+		    j += thread.team_size();
+		}
+		}, 
+		sum);
+	outputView(myMatrix, matrixRow, matrixCol) = sum;
+    }
   }
 };
 
@@ -933,8 +949,25 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 		       dev_kokkosContractionData_Right,
 		       dev_kokkosContractionResults);
 
-    const team_policy reduction_policy(
-	numberOfContractions*numLeftFields*numRightFields , numPoints );
+
+    int numTeams = 0;
+    int threadsPerTeam = 0;
+
+    if (numPoints <= 32) { // Less Points than a warp size
+	threadsPerTeam = 32;
+	numTeams = (numberOfContractions*numLeftFields*numRightFields
+		 / (32 / numPoints));
+    }
+    else if (numPoints > 1024) { // Bigger than the max team size
+	threadsPerTeam = 1024;
+	numTeams = numberOfContractions*numLeftFields*numRightFields;
+    }
+    else {
+	numTeams = numberOfContractions*numLeftFields*numRightFields;
+	threadsPerTeam = numPoints;
+    }
+
+    const team_policy reduction_policy( numTeams, threadsPerTeam );
 
 
   timespec tic;
