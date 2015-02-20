@@ -170,7 +170,7 @@ private:
 
 
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
-struct ContractDataDataTensorFunctor {
+struct ContractDataDataTensorIndependentFunctor {
   typedef DeviceType device_type;
   LeftViewType _leftInput;
   RightViewType _rightInput;
@@ -179,7 +179,7 @@ struct ContractDataDataTensorFunctor {
   int _dim1;
   int _dim2;
 
-  ContractDataDataTensorFunctor( int numPoints,
+  ContractDataDataTensorIndependentFunctor( int numPoints,
       int dim1,
       int dim2,
       LeftViewType leftInput,
@@ -199,6 +199,7 @@ struct ContractDataDataTensorFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
 
+
     double tmp = 0;
     for (int qp=0; qp < _numPoints; qp++) {
       for (int iTens1=0; iTens1 < _dim1; iTens1++) {
@@ -211,7 +212,74 @@ struct ContractDataDataTensorFunctor {
     _output(elementIndex) = tmp;
   }
 private:
-  ContractDataDataTensorFunctor();
+  ContractDataDataTensorIndependentFunctor();
 };
 
+
+
+template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
+struct ContractDataDataTensorTeamStrideFunctor {
+  typedef DeviceType device_type;
+  LeftViewType _leftInput;
+  RightViewType _rightInput;
+  OutputViewType _output;
+  int _numPoints;
+  int _dim1;
+  int _dim2;
+
+  ContractDataDataTensorTeamStrideFunctor( int numPoints,
+      int dim1,
+      int dim2,
+      LeftViewType leftInput,
+      RightViewType rightInput,
+      OutputViewType output) :
+    _leftInput(leftInput),
+    _rightInput(rightInput),
+    _output(output),
+    _numPoints(numPoints),
+    _dim1(dim1),
+    _dim2(dim2)
+  {
+    // Nothing to do
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const team_member& thread) const {
+
+    const unsigned int cell = thread.league_rank();
+    const unsigned int tIndex = thread.team_rank();
+
+    const unsigned int dim12 = _dim1 * _dim2;
+    const unsigned int cellSize = _numPoints * dim12;
+
+    float sum = 0;
+    float tsum = 0;
+
+    for (unsigned int innerIdx = tIndex; innerIdx < cellSize; innerIdx += thread.team_size() ) {
+      // Sane arithmetic version:
+      // qp = innerIdx / (_dim1 * _dim2)
+      // iTens1 = (innerIdx % (_dim1 * _dim2)) / _dim2
+      // iTens2 = innerIdx % _dim2
+
+      // Optimized arithmetic version:
+      const unsigned int qp = innerIdx / dim12;
+      const unsigned int idxDivDim2 = innerIdx / _dim2;
+      const unsigned int iTens1 = idxDivDim2 - _dim1 * qp;      
+      const unsigned int iTens2 = innerIdx - idxDivDim2 *_dim2;
+
+      sum +=  _leftInput(cell, qp, iTens1, iTens2) *
+       _rightInput(cell, qp, iTens1, iTens2);
+    }
+
+    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()),
+        [&] (const unsigned int& dummy, float& localsum) {
+        localsum += sum;
+      }, tsum);
+
+    // FIXME everyone is writing this?
+    _output(cell) = tsum;
+  }
+private:
+  ContractDataDataTensorTeamStrideFunctor();
+};
 

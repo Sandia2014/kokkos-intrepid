@@ -37,6 +37,7 @@ using std::array;
 
 
 enum KokkosStyle {KokkosStyle_Independent,
+                  KokkosStyle_TeamStride,
                   KokkosStyle_Depth1Reduction,
                   KokkosStyle_Depth2Reduction};
 
@@ -131,7 +132,7 @@ runKokkosTest(const unsigned int numberOfRepeats,
   if (kokkosStyle == KokkosStyle_Independent) {
 
     // breaking formatting convention because holy freak that's long
-    ContractDataDataTensorFunctor<DeviceType,
+    ContractDataDataTensorIndependentFunctor<DeviceType,
       KokkosInputData,
       KokkosInputData,
       KokkosCalcResults>
@@ -176,6 +177,63 @@ runKokkosTest(const unsigned int numberOfRepeats,
       const timespec toc = getTimePoint();
       totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
     }
+  }
+
+  else if (kokkosStyle == KokkosStyle_TeamStride) {
+
+    ContractDataDataTensorTeamStrideFunctor<DeviceType,
+      KokkosInputData,
+      KokkosInputData,
+      KokkosCalcResults>
+        contractDataDataTensorFunctor(numPoints,
+            dim1,
+            dim2,
+            dev_kokkosInputData_A,
+            dev_kokkosInputData_B,
+            dev_kokkosCalcResults);
+
+    const team_policy reduction_policy(numCells, 64);
+    //const team_policy reduction_policy(numCells,
+    //    team_policy::team_size_max(ContractDataDataTensorTeamStrideFunctor
+    //      <DeviceType, KokkosInputData, KokkosInputData, KokkosCalcResults>));
+
+    timespec tic;
+    totalElapsedTime = 0;
+    for (unsigned int repeatIndex = 0;
+        repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+      *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+      if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+            repeatIndex == 1) ||
+          clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        tic = getTimePoint();
+      }
+
+
+      Kokkos::parallel_for( reduction_policy, contractDataDataTensorFunctor );
+      Kokkos::fence();
+
+
+      if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        const timespec toc = getTimePoint();
+        const float elapsedTime = getElapsedTime(tic, toc);
+        totalElapsedTime += elapsedTime;
+
+        // attempt to scrub all levels of cache
+        size_t partialJunkDataCounter = 0;
+        Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+            partialJunkDataCounter);
+        *junkDataCounter += partialJunkDataCounter;
+
+
+      }
+    }
+
+
+    if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+    }
+
   }
 
   else if (kokkosStyle == KokkosStyle_Depth1Reduction) {
@@ -320,10 +378,18 @@ int main(int argc, char* argv[]) {
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
     //{{25, 100, 500, 1000, 2000}};
-    {{64, 128, 256, 512, 1024, 2048}};
+    //{{64, 128, 256, 512, 1024, 2048}};
+    {{256, 512, 1024, 2048, 4096, 8192}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
-  const unsigned int dimSize = 8;
+  const unsigned int dimSize1 = 16;
+  const unsigned int dimSize2 = 16;
+
+  if (dimSize1 * dimSize2 > contractionSizes.front()) {
+      fprintf(stderr, "contractionSize %d too small for dimsizes %d and %d\n",
+              contractionSizes.front(), dimSize1, dimSize2);
+      exit(1);
+  }
 
 
 #ifdef RAW_CUDA
@@ -411,6 +477,10 @@ int main(int argc, char* argv[]) {
                                      vector<float>(numberOfMemorySizes, 0));
 
   vector<vector<float> >
+    kokkosCudaTeamStrideTimesMatrix(numberOfContractionSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
     kokkosCudaTeamDepth1TimesMatrix(numberOfContractionSizes,
                                      vector<float>(numberOfMemorySizes, 0));
 
@@ -455,7 +525,8 @@ int main(int argc, char* argv[]) {
        ++contractionSizeIndex) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
     //const unsigned int dimVec = 8;
-    const unsigned int numPoints = contractionSize / (dimSize * dimSize);
+    const unsigned int numPoints = contractionSize / (dimSize1 * dimSize2);
+
     //const unsigned int numPoints = contractionSize / dimVec;
 
     const timespec thisSizesTic = getTimePoint();
@@ -562,12 +633,15 @@ int main(int argc, char* argv[]) {
 
 
   for (int cl=0; cl < numCells; cl++) {
+    int clDim = cl * numPoints * dimSize1 * dimSize2;
     double tmp = 0;
     for (int qp=0; qp < numPoints; qp++) {
-      for (int iTens1=0; iTens1 < dimSize; iTens1++) {
-        for (int iTens2=0; iTens2 < dimSize; iTens2++) {
-          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2] *
-                 dotProductData_LayoutRight_B[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2];
+      int qpDim = qp * dimSize1 * dimSize2;
+      for (int iTens1=0; iTens1 < dimSize1; iTens1++) {
+        int iTens1Dim = iTens1 * dimSize2;
+        for (int iTens2=0; iTens2 < dimSize2; iTens2++) {
+          tmp += dotProductData_LayoutRight_A[clDim + qpDim + iTens1Dim + iTens2] *
+                 dotProductData_LayoutRight_B[clDim + qpDim + iTens1Dim + iTens2];
         }
       }
     }
@@ -623,15 +697,16 @@ int main(int argc, char* argv[]) {
   for (int cl=0; cl < numCells; cl++) {
     double tmp = 0;
     for (int qp=0; qp < numPoints; qp++) {
-      for (int iTens1=0; iTens1 < dimSize; iTens1++) {
-        for (int iTens2=0; iTens2 < dimSize; iTens2++) {
-          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2] *
-                 dotProductData_LayoutRight_B[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2];
+      for (int iTens1=0; iTens1 < dimSize1; iTens1++) {
+        for (int iTens2=0; iTens2 < dimSize2; iTens2++) {
+          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize1 * dimSize2 + qp * dimSize1 * dimSize1 + iTens1 * dimSize2 + iTens2] *
+                 dotProductData_LayoutRight_B[cl * numPoints * dimSize1 * dimSize2 + qp * dimSize1 * dimSize2 + iTens1 * dimSize2 + iTens2];
         }
       }
     }
     calcResults[cl] = tmp;
   }
+
 
 
 
@@ -777,8 +852,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -803,8 +878,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -829,8 +904,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -855,8 +930,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -867,6 +942,32 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &calcResults,
                                               KokkosStyle_Independent);
+      }
+
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosInputData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosCudaTeamStrideTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosTest<DeviceType,
+                        KokkosInputData>(numberOfRepeats,
+                                              memorySize,
+                                              numCells,
+                                              numPoints,
+                                              dimSize1,
+                                              dimSize2,
+                                              dotProductData_LayoutRight_A,
+                                              dotProductData_LayoutRight_B,
+                                              correctResults,
+                                              string("Kokkos cuda team stride"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &calcResults,
+                                              KokkosStyle_TeamStride);
       }
 
 
@@ -929,6 +1030,10 @@ int main(int argc, char* argv[]) {
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
 
+  writeTimesMatrixToFile(kokkosCudaTeamStrideTimesMatrix,
+                         prefix + string("kokkosCudaTeamStrideTimes") + suffix);
+
+
   writeTimesMatrixToFile(kokkosCudaTeamDepth1TimesMatrix,
                          prefix + string("kokkosCudaTeamDepth1Times") + suffix);
 
@@ -938,9 +1043,9 @@ int main(int argc, char* argv[]) {
 
 #if defined RAW_CUDA
   // Note, we assume that if RAW_CUDA is defined so is ENABLE_KOKKOS here
-  const unsigned int numberOfMethods = 9;
+  const unsigned int numberOfMethods = 10;
 #elif defined ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 6;
+  const unsigned int numberOfMethods = 7;
 #else
   const unsigned int numberOfMethods = 2;
 #endif
