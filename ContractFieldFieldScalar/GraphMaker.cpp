@@ -39,7 +39,7 @@ typedef team_policy::member_type team_member;
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
-                CudaStyle_Slicing
+                CudaStyle_Slicing,
                 CudaStyle_Tiling};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
@@ -52,6 +52,10 @@ convertCudaStyleToString(const CudaStyle cudaStyle) {
     return string("CudaStyle_Independent");
   case CudaStyle_Reduction:
     return string("CudaStyle_Reduction");
+  case CudaStyle_Slicing:
+    return string("CudaStyle_Slicing");
+  case CudaStyle_Tiling:
+    return string("CudaStyle_Tiling");
   default:
     fprintf(stderr, "invalid cuda style\n");
     exit(1);
@@ -151,7 +155,7 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfContractions,
                                      const float * const __restrict__ dev_contractionData_Left,
                                      float * dev_contractionResults) {
 
-  extern __shared__ double sliceStorage[];
+  extern __shared__ float sliceStorage[];
 
   unsigned int contractionIndex = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -164,7 +168,7 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfContractions,
 
   sliceStorage[threadIdx.x] = dev_contractionData_Left[myMatrix * numBasis*contractionSize
                               + matrixRow * contractionSize + threadIdx.x];
-  synchthreads();
+  syncthreads();
 
   float temp = 0;
   for (int qp = 0; qp < contractionSize; qp++) {
@@ -516,7 +520,7 @@ runCudaTeamTest(const CudaStyle cudaStyle,
     if (cudaStyle == CudaStyle_Slicing) {
       doCudaContractions_Slicing_kernel<<<numberOfBlocks,
         numberOfThreadsPerBlock,
-        numBasis * sizeOf(float)>>>(numberOfContractions*numBasis*numBasis,
+        contractionSize * sizeof(float)>>>(numberOfContractions*numBasis*numBasis,
                                    maxNumberOfContractions,
                                    contractionSize,
                                    numBasis,
@@ -567,7 +571,7 @@ runCudaTeamTest(const CudaStyle cudaStyle,
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *contractionResults,
-              numberOfContractions*numBasis*numBasis, memorySize,
+              numBasis, memorySize,
               convertCudaStyleToString(cudaStyle));
 
   // scrub the results
@@ -2145,7 +2149,7 @@ int main(int argc, char* argv[]) {
       }
 
       {
-        const unsigned int numberOfThreadsPerBlock = numBasis;
+        const unsigned int numberOfThreadsPerBlock = contractionSize;
 
         cudaSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTeamTest(CudaStyle_Slicing,
@@ -2400,10 +2404,10 @@ int main(int argc, char* argv[]) {
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
 
-  writeTimesMatrixToFile(CudaSlicingTimesMatrix,
+  writeTimesMatrixToFile(cudaSlicingTimesMatrix,
                          prefix + string("cudaSlicingTimes") + suffix);
 
-  writeTimesMatrixToFile(CudaSlicingTimesMatrix,
+  writeTimesMatrixToFile(cudaTilingTimesMatrix,
                          prefix + string("cudaTiledTimes") + suffix);
 //#ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
