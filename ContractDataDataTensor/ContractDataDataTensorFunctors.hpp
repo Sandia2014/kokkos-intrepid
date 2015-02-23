@@ -199,6 +199,7 @@ struct ContractDataDataTensorIndependentFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
 
+
     double tmp = 0;
     for (int qp=0; qp < _numPoints; qp++) {
       for (int iTens1=0; iTens1 < _dim1; iTens1++) {
@@ -257,7 +258,7 @@ struct ContractDataDataTensorTeamStrideFunctor {
 
     for (unsigned int innerIdx = dim; innerIdx < cellSize; innerIdx += thread.team_size() ) {
       const unsigned int qp = innerIdx / (_dim1 * _dim2);
-      const unsigned int iTens1 = (innerIdx % _numPoints) / _dim2;
+      const unsigned int iTens1 = (innerIdx % (_dim1 * _dim2)) / _dim2;
       const unsigned int iTens2 = innerIdx % _dim2;
 
       sum +=  _leftInput(cell, qp, iTens1, iTens2) *

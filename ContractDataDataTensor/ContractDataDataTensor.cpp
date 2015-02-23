@@ -378,10 +378,11 @@ int main(int argc, char* argv[]) {
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
     //{{25, 100, 500, 1000, 2000}};
-    {{64, 128, 256, 512, 1024, 2048}};
+    {{32, 64, 128, 256, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
-  const unsigned int dimSize = 8;
+  const unsigned int dimSize1 = 8;
+  const unsigned int dimSize2 = 4;
 
 
 #ifdef RAW_CUDA
@@ -517,7 +518,7 @@ int main(int argc, char* argv[]) {
        ++contractionSizeIndex) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
     //const unsigned int dimVec = 8;
-    const unsigned int numPoints = contractionSize / (dimSize * dimSize);
+    const unsigned int numPoints = contractionSize / (dimSize1 * dimSize2);
     //const unsigned int numPoints = contractionSize / dimVec;
 
     const timespec thisSizesTic = getTimePoint();
@@ -624,12 +625,15 @@ int main(int argc, char* argv[]) {
 
 
   for (int cl=0; cl < numCells; cl++) {
+    int clDim = cl * numPoints * dimSize1 * dimSize2;
     double tmp = 0;
     for (int qp=0; qp < numPoints; qp++) {
-      for (int iTens1=0; iTens1 < dimSize; iTens1++) {
-        for (int iTens2=0; iTens2 < dimSize; iTens2++) {
-          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2] *
-                 dotProductData_LayoutRight_B[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2];
+      int qpDim = qp * dimSize1 * dimSize2;
+      for (int iTens1=0; iTens1 < dimSize1; iTens1++) {
+        int iTens1Dim = iTens1 * dimSize2;
+        for (int iTens2=0; iTens2 < dimSize2; iTens2++) {
+          tmp += dotProductData_LayoutRight_A[clDim + qpDim + iTens1Dim + iTens2] *
+                 dotProductData_LayoutRight_B[clDim + qpDim + iTens1Dim + iTens2];
         }
       }
     }
@@ -685,15 +689,16 @@ int main(int argc, char* argv[]) {
   for (int cl=0; cl < numCells; cl++) {
     double tmp = 0;
     for (int qp=0; qp < numPoints; qp++) {
-      for (int iTens1=0; iTens1 < dimSize; iTens1++) {
-        for (int iTens2=0; iTens2 < dimSize; iTens2++) {
-          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2] *
-                 dotProductData_LayoutRight_B[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2];
+      for (int iTens1=0; iTens1 < dimSize1; iTens1++) {
+        for (int iTens2=0; iTens2 < dimSize2; iTens2++) {
+          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize1 * dimSize2 + qp * dimSize1 * dimSize1 + iTens1 * dimSize2 + iTens2] *
+                 dotProductData_LayoutRight_B[cl * numPoints * dimSize1 * dimSize2 + qp * dimSize1 * dimSize2 + iTens1 * dimSize2 + iTens2];
         }
       }
     }
     calcResults[cl] = tmp;
   }
+
 
 
 
@@ -839,8 +844,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -865,8 +870,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -891,8 +896,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -917,8 +922,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -943,8 +948,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
