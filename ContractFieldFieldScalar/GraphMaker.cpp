@@ -195,7 +195,7 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
   //NOTE: This relies on contractionSize being a multiple of tileSize (16)
   const unsigned int numberOfHorizontalTiles = contractionSize / tileSize;
   //NOTE: This relies on numBasis being a multiple of tileSize(16)
-  const unsigned int numberOfVerticalTiles = numBasis / tileSize
+  const unsigned int numberOfVerticalTiles = numBasis / tileSize;
 
   const unsigned int numberOfTiles = numCells * numberOfVerticalTiles * numberOfVerticalTiles;
 
@@ -226,7 +226,7 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
           const unsigned int leftBaseIndex = subRow * tileSize;
           const unsigned int rightBaseIndex = numbersPerTile + subCol;
 
-          const unsigned int resultIndex = row * matrixSize + col;
+          const unsigned int resultIndex = row * numBasis + col;
 
           // load the left and right tiles into shared memory
           syncthreads();
@@ -637,7 +637,7 @@ runCudaTeamTest(const CudaStyle cudaStyle,
   }
   // copy over the results from the gpu to the cpu
   checkCudaError(cudaMemcpy(&contractionResults->at(0), dev_contractionResults,
-                            numberOfContractions *numBasis*numBasis* sizeof(float),
+                            numCells *numBasis*numBasis* sizeof(float),
                             cudaMemcpyDeviceToHost));
   // check the results
   checkAnswer(correctResults, *contractionResults,
@@ -649,7 +649,7 @@ runCudaTeamTest(const CudaStyle cudaStyle,
             contractionResults->end(),
             std::numeric_limits<float>::quiet_NaN());
   checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults->at(0),
-                            numberOfContractions * numBasis*numBasis*sizeof(float),
+                            numCells * numBasis*numBasis*sizeof(float),
                             cudaMemcpyHostToDevice));
 
 
@@ -2217,7 +2217,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
-
+/*
       {
         const unsigned int numberOfThreadsPerBlock = contractionSize;
 
@@ -2244,7 +2244,7 @@ int main(int argc, char* argv[]) {
                       0);
 
       }
-
+*/
       {
         const unsigned int numberOfThreadsPerBlock = 256;
 
@@ -2401,6 +2401,7 @@ int main(int argc, char* argv[]) {
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
                                               &contractionResults);
+      
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
