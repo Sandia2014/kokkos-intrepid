@@ -192,7 +192,7 @@ runKokkosTest(const unsigned int numberOfRepeats,
             dev_kokkosInputData_B,
             dev_kokkosCalcResults);
 
-    const team_policy reduction_policy(numCells, 256);
+    const team_policy reduction_policy(numCells, 1024);
     //const team_policy reduction_policy(numCells,
     //    team_policy::team_size_max(ContractDataDataTensorTeamStrideFunctor
     //      <DeviceType, KokkosInputData, KokkosInputData, KokkosCalcResults>));
