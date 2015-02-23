@@ -795,31 +795,44 @@ struct CFFS_Reduction_TeamFunctor {
 
   KOKKOS_INLINE_FUNCTION
   void operator() (const team_member & thread) const {
-    int myID =  thread.league_rank();
-    int myMatrix = myID / (numLeftFields * numRightFields);
-    int matrixIndex = myID % (numLeftFields * numRightFields);
-
-    int matrixRow = matrixIndex / numRightFields;
-    int matrixCol = matrixIndex % numRightFields;
-
+    
     float sum = 0;
-    if (numPoints <= 32) {
-	Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()),
-	    [&] (const unsigned int& i, float& sum) {
-	    sum += leftView(myMatrix, matrixRow, i) 
-		* rightView(myMatrix, i, matrixCol);
-	},
-	sum);
-	outputView(myMatrix, matrixRow, matrixCol) = sum;
+    if (numPoints <= 16) {
+	
+	int myID = thread.league_rank()*(32/numPoints)+thread.team_rank()/numPoints;
+	
+	int myMatrix = myID / (numLeftFields * numRightFields);
+	int matrixIndex = (myID % (numLeftFields * numRightFields));
+//if (myMatrix == 767) {
+	    //outputView(0,0,0) = thread.league_size()*thread.team_size();
+	    Kokkos::atomic_fetch_add(&outputView(0, 0, 0), 1);
+//	}
+	int matrixRow = matrixIndex / numRightFields;
+	int matrixCol = matrixIndex % numRightFields;
+	
+	int pointIndex = thread.team_rank() % numPoints;
+
+	float mult = leftView(myMatrix, matrixRow, pointIndex) 
+		   * rightView(myMatrix, pointIndex, matrixCol);
+
+//	Kokkos::atomic_fetch_add(&outputView(myMatrix, matrixRow, matrixCol), mult);
     }
 
     else {
-	Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, numPoints), 
+	int myID =  thread.league_rank();
+	int myMatrix = myID / (numLeftFields * numRightFields);
+	int matrixIndex = myID % (numLeftFields * numRightFields);
+
+	int matrixRow = matrixIndex / numRightFields;
+	int matrixCol = matrixIndex % numRightFields;
+
+
+	Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()), 
 		[&] (const unsigned int& i, float& sum) {
 		int j = i;
 		while (j < numPoints) {
-		    sum += leftView(myMatrix, matrixRow, j) 
-			* rightView(myMatrix, j, matrixCol);
+		sum += leftView(myMatrix, matrixRow, j) 
+		* rightView(myMatrix, j, matrixCol);
 		    j += thread.team_size();
 		}
 		}, 
@@ -969,6 +982,7 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 
     const team_policy reduction_policy( numTeams, threadsPerTeam );
 
+    printf("Numthreads: %d\nNumteams: %d\n", threadsPerTeam, numTeams);
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -1575,7 +1589,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{8, 16, 32, 64, 128, 512, 1024/*, 2048*/}};
+    {{/*8, 16, */32, 64, 128, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1703,7 +1717,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 10;
+    const int numBasis = contractionSize;
 
     const timespec thisSizesTic = getTimePoint();
 
