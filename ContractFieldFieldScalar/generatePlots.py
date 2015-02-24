@@ -31,6 +31,7 @@ kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentT
 kokkosTeamReductionTimes = numpy.loadtxt(open(prefix + 'kokkosTeamReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosSlicingTimes = numpy.loadtxt(open(prefix + 'kokkosSlicingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosTilingTimes = numpy.loadtxt(open(prefix + 'kokkosTilingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+cudaTilingTimes = numpy.loadtxt(open(prefix + 'cudaTiledTimes' + suffix + '.csv', 'rb'),delimiter=',',skiprows=0)
 
 # set up a list of the times and names, for easy iteration later
 # TODO: make this consistent with the files that you read in and/or care about
@@ -52,15 +53,17 @@ allNames.append('cudaIndependent')
 #allNames.append('cudaSwitching')
 #allTimes.append(kokkosOmpTimes)
 #allNames.append('kokkosOmp')
-allTimes.append(kokkosCudaIndependentTimes)
-allNames.append('kokkosCudaIndependent')
-allTimes.append(kokkosTeamReductionTimes)
-allNames.append('kokkosTeamReductionTimes')
-allTimes.append(kokkosSlicingTimes)
-allNames.append('kokkosSlicingTimes')
-allTimes.append(kokkosTilingTimes)
-allNames.append('kokkosTilingTimes')
+#allTimes.append(kokkosCudaIndependentTimes)
+#allNames.append('kokkosCudaIndependent')
+#allTimes.append(kokkosTeamReductionTimes)
+#allNames.append('kokkosTeamReductionTimes')
+#allTimes.append(kokkosSlicingTimes)
+#allNames.append('kokkosSlicingTimes')
+#allTimes.append(kokkosTilingTimes)
+#allNames.append('kokkosTilingTimes')
 
+allTimes.append(cudaTilingTimes)
+allNames.append('cudaTilingTimes')
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
 #makeImageFiles = False
@@ -406,7 +409,7 @@ if (makeImageFiles == True):
       print 'saved file to %s' % filename
 else:
   plt.show()
-"""
+
 # cuda
 fig3d = plt.figure(0)
 plt.clf()
@@ -430,4 +433,4 @@ if (makeImageFiles == True):
       print 'saved file to %s' % filename
 else:
   plt.show()
-
+"""

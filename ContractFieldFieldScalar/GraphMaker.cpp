@@ -159,7 +159,7 @@ doCudaContractions_Slicing_kernel(const unsigned int numCells,
   unsigned int globalRowIndex = blockIdx.x;
   unsigned int col = threadIdx.x;
 
-  while (globalRowIndex < (numCells * numBasis)){
+  while (globalRowIndex < (numCells *numBasis)){
 
     int myMatrix = globalRowIndex / (numBasis * contractionSize);
     int localRowIndex = globalRowIndex % (numBasis * contractionSize);
@@ -173,13 +173,25 @@ doCudaContractions_Slicing_kernel(const unsigned int numCells,
 
     float temp = 0;
 
+
+
     for (int qp = 0; qp < contractionSize; qp++) {
+      if(sliceStorage[qp] == 0){
+	temp = -qp;
+	break;
+      }
+      if(dev_contractionData_Right[myMatrix*numBasis*contractionSize + qp * numBasis + col] == 0){
+        temp = -12345;
+	break;
+      }
       temp += sliceStorage[qp]
       * dev_contractionData_Right[myMatrix * numBasis * contractionSize + qp * numBasis + col];
-    }
-
+    } 
+     
     dev_contractionResults[myMatrix * numBasis * numBasis + localRowIndex * numBasis + col] = temp;
+    
     globalRowIndex += gridDim.x;
+    syncthreads();
   }
 }
 
@@ -591,7 +603,7 @@ runCudaTeamTest(const CudaStyle cudaStyle,
 
     // do the actual calculation
     if (cudaStyle == CudaStyle_Slicing) {
-      doCudaContractions_Slicing_kernel<<<numberOfBlocks,
+      doCudaContractions_Slicing_kernel<<<numCells*numBasis,
         numberOfThreadsPerBlock,
         contractionSize * sizeof(float)>>>(numCells,
                                    contractionSize,
@@ -2406,7 +2418,9 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &contractionResults);
 
+      
       }
+      
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
