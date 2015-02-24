@@ -147,7 +147,7 @@ doCudaContractions_Independent_kernel(const unsigned int numberOfContractions,
 
 __global__
 void
-doCudaContractions_Slicing_kernel(const unsigned int numberOfContractions,
+doCudaContractions_Slicing_kernel(const unsigned int numCells,
                                      const unsigned int contractionSize,
                                      const unsigned int numBasis,
                                      const float * const __restrict__ dev_contractionData_Right,
@@ -156,27 +156,32 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfContractions,
 
   extern __shared__ float sliceStorage[];
 
-  unsigned int contractionIndex = blockIdx.x * blockDim.x + threadIdx.x;
+  unsigned int globalRowIndex = blockIdx.x;
+  unsigned int col = threadIdx.x
 
-  int myID = contractionIndex;
-  int myMatrix = myID / (numBasis * numBasis);
-  int matrixIndex = myID % (numBasis * numBasis);
+  while (rowIndex < numCells * numBasis){
 
-  int matrixRow = matrixIndex / numBasis;
-  int matrixCol = matrixIndex % numBasis;
+    int myMatrix = rowIndex / (numBasis * contractionSize);
+    int localRowIndex = rowIndex % (numBasis * contractionSize);
+    int matrixOffset = myMatrix * contractionSize * numBasis;
 
-  sliceStorage[threadIdx.x] = dev_contractionData_Left[myMatrix * numBasis*contractionSize
-                              + matrixRow * contractionSize + threadIdx.x];
-  syncthreads();
+    for(int i = threadIdx.x; i < contractionSize; i += blockDim.x) {
+      sliceStorage[i] = dev_contractionData_Left[myMatrix*numBasis*contractionSize
+                              + localRowIndex * contractionSize + i];
+    }
 
-  float temp = 0;
-  for (int qp = 0; qp < contractionSize; qp++) {
-    temp += sliceStorage[qp]
-    * dev_contractionData_Right[myMatrix * numBasis * contractionSize + qp * numBasis + matrixCol];
+    syncthreads();
+
+    float temp = 0;
+
+    for (int qp = 0; qp < contractionSize; qp++) {
+      temp += sliceStorage[qp]
+      * dev_contractionData_Right[myMatrix * numBasis * contractionSize + qp * numBasis + col];
+    }
+
+    dev_contractionResults[myMatrix * numBasis * numBasis + localRowIndex * numBasis + col] = temp;
+    rowIndex += gridDim.x;
   }
-
-  dev_contractionResults[myMatrix * numBasis * numBasis + matrixRow * numBasis + matrixCol] = temp;
-
 }
 
 __global__
@@ -589,7 +594,7 @@ runCudaTeamTest(const CudaStyle cudaStyle,
     if (cudaStyle == CudaStyle_Slicing) {
       doCudaContractions_Slicing_kernel<<<numberOfBlocks,
         numberOfThreadsPerBlock,
-        contractionSize * sizeof(float)>>>(numCells*numBasis*numBasis,
+        contractionSize * sizeof(float)>>>(numCells,
                                    contractionSize,
                                    numBasis,
                                    dev_contractionData_Right,
@@ -2217,9 +2222,9 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
-/*
+
       {
-        const unsigned int numberOfThreadsPerBlock = contractionSize;
+        const unsigned int numberOfThreadsPerBlock = numBasis;
 
         cudaSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTeamTest(CudaStyle_Slicing,
@@ -2244,7 +2249,7 @@ int main(int argc, char* argv[]) {
                       0);
 
       }
-*/
+
       {
         const unsigned int numberOfThreadsPerBlock = 256;
 
@@ -2401,7 +2406,7 @@ int main(int argc, char* argv[]) {
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
                                               &contractionResults);
-      
+
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
