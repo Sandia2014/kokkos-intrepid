@@ -157,13 +157,12 @@ doCudaContractions_Slicing_kernel(const unsigned int numCells,
   extern __shared__ float sliceStorage[];
 
   unsigned int globalRowIndex = blockIdx.x;
-  unsigned int col = threadIdx.x
+  unsigned int col = threadIdx.x;
 
-  while (rowIndex < numCells * numBasis){
+  while (globalRowIndex < numCells * numBasis){
 
-    int myMatrix = rowIndex / (numBasis * contractionSize);
-    int localRowIndex = rowIndex % (numBasis * contractionSize);
-    int matrixOffset = myMatrix * contractionSize * numBasis;
+    int myMatrix = globalRowIndex / (numBasis * contractionSize);
+    int localRowIndex = globalRowIndex % (numBasis * contractionSize);
 
     for(int i = threadIdx.x; i < contractionSize; i += blockDim.x) {
       sliceStorage[i] = dev_contractionData_Left[myMatrix*numBasis*contractionSize
@@ -180,7 +179,7 @@ doCudaContractions_Slicing_kernel(const unsigned int numCells,
     }
 
     dev_contractionResults[myMatrix * numBasis * numBasis + localRowIndex * numBasis + col] = temp;
-    rowIndex += gridDim.x;
+    globalRowIndex += gridDim.x;
   }
 }
 
