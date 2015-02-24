@@ -797,16 +797,11 @@ struct CFFS_Reduction_TeamFunctor {
   void operator() (const team_member & thread) const {
     
     float sum = 0;
-    if (numPoints <= 16) {
-	
+    /* This requires the outputView to be all 0s beforehand */
+    if (numPoints <= 16) {	
 	int myID = thread.league_rank()*(32/numPoints)+thread.team_rank()/numPoints;
-	
 	int myMatrix = myID / (numLeftFields * numRightFields);
 	int matrixIndex = (myID % (numLeftFields * numRightFields));
-//if (myMatrix == 767) {
-	    //outputView(0,0,0) = thread.league_size()*thread.team_size();
-	    Kokkos::atomic_fetch_add(&outputView(0, 0, 0), 1);
-//	}
 	int matrixRow = matrixIndex / numRightFields;
 	int matrixCol = matrixIndex % numRightFields;
 	
@@ -815,7 +810,7 @@ struct CFFS_Reduction_TeamFunctor {
 	float mult = leftView(myMatrix, matrixRow, pointIndex) 
 		   * rightView(myMatrix, pointIndex, matrixCol);
 
-//	Kokkos::atomic_fetch_add(&outputView(myMatrix, matrixRow, matrixCol), mult);
+	Kokkos::atomic_fetch_add(&outputView(myMatrix, matrixRow, matrixCol), mult);
     }
 
     else {
@@ -982,7 +977,6 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 
     const team_policy reduction_policy( numTeams, threadsPerTeam );
 
-    printf("Numthreads: %d\nNumteams: %d\n", threadsPerTeam, numTeams);
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -1011,6 +1005,9 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
       size_t partialJunkDataCounter = 0;
       Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
                               partialJunkDataCounter);
+      if (repeatIndex != numberOfRepeats) {
+	Kokkos::deep_copy(dev_kokkosContractionResults, kokkosContractionResults) ;
+      }
       *junkDataCounter += partialJunkDataCounter;
     }
   }
@@ -1589,7 +1586,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16, */32, 64, 128, 512, 1024, 2048}};
+    {{8, 16, 32, 64, 128, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
