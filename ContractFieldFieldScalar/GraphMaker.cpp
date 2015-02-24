@@ -159,7 +159,7 @@ doCudaContractions_Slicing_kernel(const unsigned int numCells,
   unsigned int globalRowIndex = blockIdx.x;
   unsigned int col = threadIdx.x;
 
-  while (globalRowIndex < numCells * numBasis){
+  while (globalRowIndex < (numCells * numBasis)){
 
     int myMatrix = globalRowIndex / (numBasis * contractionSize);
     int localRowIndex = globalRowIndex % (numBasis * contractionSize);
