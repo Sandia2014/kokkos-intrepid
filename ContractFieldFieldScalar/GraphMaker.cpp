@@ -261,7 +261,7 @@ runCudaTest(const CudaStyle cudaStyle,
 		const unsigned int contractionSize,
 		const unsigned int numBasis,
 		const unsigned int memorySize,
-		const vector<float> & correctResults,
+		vector<float> * correctResults,
 		const ClearCacheStyle clearCacheStyle,
 		const int * const dev_junkDataToClearTheCache,
 		const unsigned int junkDataSize,
@@ -378,8 +378,13 @@ runCudaTest(const CudaStyle cudaStyle,
 	checkCudaError(cudaMemcpy(&contractionResults->at(0), dev_contractionResults,
 				numberOfContractions *numBasis*numBasis* sizeof(float),
 				cudaMemcpyDeviceToHost));
+	
+	checkCudaError(cudaMemcpy(&correctResults->at(0), dev_contractionResults,
+				numberOfContractions *numBasis*numBasis* sizeof(float),
+				cudaMemcpyDeviceToHost));
+
 	// check the results
-	checkAnswer(correctResults, *contractionResults,
+	checkAnswer(*correctResults, *contractionResults,
 			numberOfContractions*numBasis*numBasis, memorySize,
 			convertCudaStyleToString(cudaStyle));
 
@@ -407,7 +412,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 		const unsigned int contractionSize,
 		const unsigned int numBasis,
 		const unsigned int memorySize,
-		const vector<float> & correctResults,
+		vector<float> * correctResults,
 		const ClearCacheStyle clearCacheStyle,
 		const int * const dev_junkDataToClearTheCache,
 		const unsigned int junkDataSize,
@@ -424,7 +429,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 	//  the reduction style actually starts beating the independent.
 	if (numberOfContractions < 200) {
 		const unsigned int numberOfThreadsPerBlock =
-			std::min(unsigned(1024),
+			std::min(unsigned(256),
 					unsigned(ceil(contractionSize / 32.)) * 32);
 		return
 			runCudaTest(CudaStyle_Reduction,
@@ -447,7 +452,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 					dev_contractionResults,
 					contractionResults);
 	} else {
-		const unsigned int numberOfThreadsPerBlock = 1024;
+		const unsigned int numberOfThreadsPerBlock = 256;
 		return
 			runCudaTest(CudaStyle_Independent,
 					numberOfThreadsPerBlock,
@@ -797,13 +802,15 @@ struct CFFS_Reduction_TeamFunctor {
 		void operator() (const team_member & thread) const {
 
 			float sum = 0;
+			const unsigned int threadsPerTeam = thread.team_size();
+
 			/* This requires the outputView to be all 0s beforehand */
-			if (numPoints <= 16) {	
-				int myID = thread.league_rank()*(32/numPoints)+thread.team_rank()/numPoints;
+			if (numPoints <= threadsPerTeam/2) {	
+				int myID = thread.league_rank()*(threadsPerTeam/numPoints)+thread.team_rank()/numPoints;
 				int myMatrix = myID / (numLeftFields * numRightFields);
-				int matrixIndex = (myID % (numLeftFields * numRightFields));
+				int matrixIndex = myID - (myMatrix * (numLeftFields * numRightFields));
 				int matrixRow = matrixIndex / numRightFields;
-				int matrixCol = matrixIndex % numRightFields;
+				int matrixCol = matrixIndex - (matrixRow * numRightFields);
 
 				int pointIndex = thread.team_rank() % numPoints;
 
@@ -816,10 +823,10 @@ struct CFFS_Reduction_TeamFunctor {
 			else {
 				int myID =  thread.league_rank();
 				int myMatrix = myID / (numLeftFields * numRightFields);
-				int matrixIndex = myID % (numLeftFields * numRightFields);
+				int matrixIndex = myID - (myMatrix * (numLeftFields * numRightFields));
 
 				int matrixRow = matrixIndex / numRightFields;
-				int matrixCol = matrixIndex % numRightFields;
+				int matrixCol = matrixIndex - (matrixRow * numRightFields);
 
 
 				Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()), 
@@ -958,16 +965,16 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 					dev_kokkosContractionResults);
 
 
-	int numTeams = 0;
-	int threadsPerTeam = 0;
+	int numTeams = numberOfContractions*numLeftFields*numRightFields;
+	int threadsPerTeam = numPoints;
 
 	if (numPoints <= 32) { // Less Points than a warp size
 		threadsPerTeam = 32;
 		numTeams = (numberOfContractions*numLeftFields*numRightFields
 				/ (32 / numPoints));
 	}
-	else if (numPoints > 1024) { // Bigger than the max team size
-		threadsPerTeam = 1024;
+	else if (numPoints > 256) { // Bigger than the max team size
+		threadsPerTeam = 256;
 		numTeams = numberOfContractions*numLeftFields*numRightFields;
 	}
 	else {
@@ -1066,35 +1073,92 @@ struct CFFS_Slicing_TeamFunctor {
 
 	KOKKOS_INLINE_FUNCTION
 		void operator() (const team_member & thread) const {
-			int l = thread.league_rank() % numLeftFields;
-			int r = thread.team_rank();
-			int c = thread.league_rank() / numLeftFields;
+			
+			const unsigned int team_size = thread.team_size();
+			/*
+			if (numPoints <= team_size/2) {
+				int c = thread.league_rank() / (numLeftFields / (team_size/numPoints));
+				int r = thread.team_rank() % numPoints;
+				int l = (thread.league_rank()*(team_size/numPoints) % numLeftFields) + thread.team_rank()/numPoints;
+				
 
-			Kokkos::View<float*, Kokkos::MemoryUnmanaged> shared_slice(thread.team_shmem(), numPoints);
+				Kokkos::View<float*, Kokkos::MemoryUnmanaged>
+							shared_slices(thread.team_shmem(), team_size);
 
-			/*if (thread.team_rank() <= 16) {
+				shared_slices(thread.team_rank()) = leftView(c, l, thread.team_rank() % numPoints);
 
-			  }
-			  else {*/
-			for (int p = thread.team_rank(); p < numPoints; p += thread.team_size()) {
-				shared_slice(p) = leftView(c, l, p);
+				thread.team_barrier();
+
+				float sum = 0;
+				for (int p = 0; p < numPoints; ++p) {
+					sum += shared_slices(p+(thread.team_rank()/numPoints)*numPoints) * rightView(c, p, r);
+				}
+				outputView(c, l, r) = sum;
+
+			}*/
+			if (numRightFields < team_size) {
+				int rankDivNumRight = thread.team_rank()/numRightFields;
+				// Got rid of %, should be a little faster
+				int r = thread.team_rank() - rankDivNumRight * numRightFields;
+				int teamSizeDivNumRight = team_size / numRightFields;
+				int lBaseMult = thread.league_rank() * (team_size/numRightFields);
+				int c = (lBaseMult+ rankDivNumRight) / numLeftFields;
+
+				
+				//int l = thread.league_rank() - (c * numLeftFields);
+				int l = (lBaseMult % numLeftFields) + rankDivNumRight;
+				Kokkos::View<float*, Kokkos::MemoryUnmanaged> 
+							shared_slice(thread.team_shmem(), numPoints * teamSizeDivNumRight);
+				int rowBase = thread.league_rank() * teamSizeDivNumRight % numLeftFields;
+				int index = thread.team_rank();
+				for (int row = rowBase; row < rowBase+teamSizeDivNumRight; ++row) {
+				for (int p = thread.team_rank(); p < numPoints; p += team_size) { 
+				shared_slice(p+(row-rowBase)*numPoints) = leftView(c, row, p);
+				index += team_size;
+				}
+				}
+				thread.team_barrier();
+
+				float sum = 0;
+				
+				for (int p = 0; p < numPoints; ++p) {
+					sum += shared_slice(p+(thread.team_rank()/numRightFields)*numPoints) * rightView(c, p, r);
+				}
+				outputView(c, l, r) = sum;
 			}
-			thread.team_barrier();
+			// doing one row in the output for the entire team
+			else {
+				int r = thread.team_rank();
+				int c = thread.league_rank() / numLeftFields;
+				int l = thread.league_rank() - (c * numLeftFields);
+				//int l = thread.league_rank() % numLeftFields;
+				Kokkos::View<float*, Kokkos::MemoryUnmanaged> 
+							shared_slice(thread.team_shmem(), numPoints);
+				for (int p = thread.team_rank(); p < numPoints; p += team_size) {
+					shared_slice(p) = leftView(c, l, p);
+				}
+				thread.team_barrier();
 
-			float sum = 0;
-			for (int row = 0; row < (numPoints-1)/thread.team_size()+1; ++row) {
-			sum = 0;
-			for (int p = 0; p < numPoints; ++p) {
-				sum += shared_slice(p) * rightView(c, p, r+row*thread.team_size());
+				float sum = 0;
+				
+				for (int col = 0; col < ((numRightFields-1)/team_size)+1; ++col) {
+					sum = 0;
+					for (int p = 0; p < numPoints; ++p) {
+						sum += shared_slice(p) * rightView(c, p, r+col*team_size);
+					}
+					outputView(c, l, r+col*team_size) = sum;
+				}
 			}
-			outputView(c, l, r+row*thread.team_size()) = sum;
-			}
-			//}
 
 		}
 
 	size_t team_shmem_size( int team_size ) const {
-		return sizeof(float) * numPoints;
+		if (numRightFields > team_size) {
+			return sizeof(float) * numPoints;
+		}
+		else {
+			return sizeof(float) * numPoints * (team_size/numRightFields);
+		}
 	}
 };
 
@@ -1220,7 +1284,12 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
 	unsigned int threadsPerTeam = min(1024, numRightFields);
 	unsigned int numTeams = numberOfContractions*numLeftFields;
 
-	/*
+	if (numRightFields < 32) {
+		threadsPerTeam = 32;
+		numTeams = numTeams / (32/numRightFields);
+	}
+
+/*	
 	   if (numPoints <= 32) { // Less Points than a warp size
 	   threadsPerTeam = 32;
 	   numTeams = (numberOfContractions*numLeftFields / (32 / numPoints));
@@ -1233,11 +1302,9 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
 	   numTeams = numberOfContractions*numLeftFields;
 	   threadsPerTeam = numRightFields;
 	   }
-	   */
+*/	
 
 	const team_policy slicing_policy(numTeams, threadsPerTeam);
-
-
 	timespec tic;
 	double totalElapsedTime = 0;
 	for (unsigned int repeatIndex = 0;
@@ -1612,10 +1679,10 @@ int main(int argc, char* argv[]) {
 	// ********************** < input> ******************************
 	// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 	const vector<unsigned int> contractionSizes =
-	{{8, 16, 32, 64, 128, 256, 512, 1024, 2048}};
+	{{16, 32, 64, 128, 256, 512, 1024}};
 	const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
 	const unsigned int numberOfMemorySizes = 5;
-	const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
+	const unsigned int maxNumberOfCudaBlocks = 256;
 	const unsigned int tile_size = 16;
 	const ClearCacheStyle clearCacheStyle =
 		ClearCacheAfterEveryRepeat;
@@ -1740,7 +1807,7 @@ int main(int argc, char* argv[]) {
 		const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
 		const int numPoints = contractionSize;
-		const int numBasis = contractionSize;
+		const int numBasis = 16; 
 
 		const timespec thisSizesTic = getTimePoint();
 
@@ -1866,11 +1933,9 @@ int main(int argc, char* argv[]) {
 						tic = getTimePoint();
 					}
 					// do the actual calculation
-					printf("actual calc\n");
 					contractFieldFieldScalarSerial(contractionResults,
 							contractionData_LayoutRight_Left, contractionData_LayoutRight_Right,
 							numberOfContractions, numBasis, numBasis, numPoints);
-					printf("done\n");
 					if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
 						const timespec toc = getTimePoint();
 						const float elapsedTime = getElapsedTime(tic, toc);
@@ -1890,12 +1955,13 @@ int main(int argc, char* argv[]) {
 			// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 			// ********************** </do serial> ***************************
 			// ===============================================================
-
-			const vector<float> correctResults = contractionResults;
+			vector<float> correctResults(maxNumberOfContractions*numBasis*numBasis,
+					std::numeric_limits<float>::quiet_NaN()); // = contractionResults;
 			// scrub the results
 			std::fill(contractionResults.begin(),
 					contractionResults.end(),
 					std::numeric_limits<float>::quiet_NaN());
+
 
 			// ===============================================================
 			// ********************** < do omp> ******************************
@@ -1999,7 +2065,7 @@ int main(int argc, char* argv[]) {
 			// ***************** < do cuda independent> **********************
 			// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 			{
-				const unsigned int numberOfThreadsPerBlock = 1024;
+				const unsigned int numberOfThreadsPerBlock = 265;
 
 				cudaIndependent_TimesMatrix[contractionSizeIndex][memorySizeIndex] =
 					runCudaTest(CudaStyle_Independent,
@@ -2011,7 +2077,7 @@ int main(int argc, char* argv[]) {
 							contractionSize,
 							numBasis,
 							memorySize,
-							correctResults,
+							&correctResults,
 							clearCacheStyle,
 							dev_junkDataToClearTheCache,
 							junkDataSize,
@@ -2023,6 +2089,7 @@ int main(int argc, char* argv[]) {
 							&contractionResults);
 
 			}
+
 			// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 			// ***************** </do cuda independent> **********************
 			// ===============================================================
@@ -2084,6 +2151,7 @@ int main(int argc, char* argv[]) {
 			// ===============================================================
 			// ***************** < do kokkos> ********************************
 			// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+			#if 0
 			{
 				printf("omp\n");
 				typedef Kokkos::OpenMP                             DeviceType;
@@ -2107,6 +2175,7 @@ int main(int argc, char* argv[]) {
 							&totalNumberOfRepeats,
 							&contractionResults);
 			}
+			#endif
 			{
 				printf("cuda\n");
 				typedef Kokkos::Cuda                               DeviceType;
