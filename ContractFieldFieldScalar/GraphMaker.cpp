@@ -38,7 +38,9 @@ typedef team_policy::member_type team_member;
 
 
 enum CudaStyle {CudaStyle_Independent,
-                CudaStyle_Reduction};
+                CudaStyle_Reduction,
+                CudaStyle_Slicing,
+                CudaStyle_Tiling};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
@@ -50,6 +52,10 @@ convertCudaStyleToString(const CudaStyle cudaStyle) {
     return string("CudaStyle_Independent");
   case CudaStyle_Reduction:
     return string("CudaStyle_Reduction");
+  case CudaStyle_Slicing:
+    return string("CudaStyle_Slicing");
+  case CudaStyle_Tiling:
+    return string("CudaStyle_Tiling");
   default:
     fprintf(stderr, "invalid cuda style\n");
     exit(1);
@@ -139,6 +145,126 @@ doCudaContractions_Independent_kernel(const unsigned int numberOfContractions,
   }
 }
 
+__global__
+void
+doCudaContractions_Slicing_kernel(const unsigned int numCells,
+                                     const unsigned int contractionSize,
+                                     const unsigned int numBasis,
+                                     const float * const __restrict__ dev_contractionData_Right,
+                                     const float * const __restrict__ dev_contractionData_Left,
+                                     float * dev_contractionResults) {
+
+  extern __shared__ float sliceStorage[];
+
+  unsigned int globalRowIndex = blockIdx.x;
+  unsigned int col = threadIdx.x;
+
+  while (globalRowIndex < (numCells *numBasis)){
+
+    int myMatrix = globalRowIndex / (numBasis * contractionSize);
+    int localRowIndex = globalRowIndex % (numBasis * contractionSize);
+
+    for(int i = threadIdx.x; i < contractionSize; i += blockDim.x) {
+      sliceStorage[i] = dev_contractionData_Left[myMatrix*numBasis*contractionSize
+                              + localRowIndex * contractionSize + i];
+    }
+
+    syncthreads();
+
+    float temp = 0;
+
+
+
+    for (int qp = 0; qp < contractionSize; qp++) {
+      if(sliceStorage[qp] == 0){
+	temp = -qp;
+	break;
+      }
+      if(dev_contractionData_Right[myMatrix*numBasis*contractionSize + qp * numBasis + col] == 0){
+        temp = -12345;
+	break;
+      }
+      temp += sliceStorage[qp]
+      * dev_contractionData_Right[myMatrix * numBasis * contractionSize + qp * numBasis + col];
+    } 
+     
+    dev_contractionResults[myMatrix * numBasis * numBasis + localRowIndex * numBasis + col] = temp;
+    
+    globalRowIndex += gridDim.x;
+    syncthreads();
+  }
+}
+
+__global__
+void
+doCudaContractions_Tiling_kernel(const unsigned int numCells,
+                                 const unsigned int contractionSize,
+                                 const unsigned int tileSize,
+                                 const unsigned int numBasis,
+                                 const float * const __restrict__ dev_contractionData_Right,
+                                 const float * const __restrict__ dev_contractionData_Left,
+                                 float * dev_contractionResults) {
+
+  extern __shared__ float tileStorage[];
+
+  const unsigned int numbersPerTile = tileSize * tileSize;
+  //NOTE: This relies on contractionSize being a multiple of tileSize (16)
+  const unsigned int numberOfHorizontalTiles = contractionSize / tileSize;
+  //NOTE: This relies on numBasis being a multiple of tileSize(16)
+  const unsigned int numberOfVerticalTiles = numBasis / tileSize;
+
+  const unsigned int numberOfTiles = numCells * numberOfVerticalTiles * numberOfVerticalTiles;
+
+  const unsigned int subRow = threadIdx.x / tileSize;
+  const unsigned int subCol = threadIdx.x  - subRow * tileSize;
+
+  unsigned int resultTileIndex = blockIdx.x;
+
+  while (resultTileIndex < numberOfTiles) {
+
+    unsigned int resultSubmatrixIndex = resultTileIndex % (numberOfVerticalTiles * numberOfVerticalTiles);
+    unsigned int resultMatrix = resultTileIndex / (numberOfVerticalTiles * numberOfVerticalTiles);
+
+    // for tileNumber in 0...numberOfTilesPerSide
+    for (unsigned int tileNumber = 0;
+       tileNumber < numberOfHorizontalTiles; ++tileNumber) {
+         // calculate result tile indices
+
+         const unsigned int resultTileRow = resultSubmatrixIndex / numberOfHorizontalTiles;
+         const unsigned int resultTileCol = resultSubmatrixIndex  -
+          resultTileRow * numberOfHorizontalTiles;
+
+          // calculate this threads actual output index
+          const unsigned int row = resultTileRow * tileSize + subRow;
+          const unsigned int col = resultTileCol * tileSize + subCol;
+
+          // these are base indices into the shared memory
+          const unsigned int leftBaseIndex = subRow * tileSize;
+          const unsigned int rightBaseIndex = numbersPerTile + subCol;
+
+          const unsigned int resultIndex = row * numBasis + col;
+
+          // load the left and right tiles into shared memory
+          syncthreads();
+          tileStorage[threadIdx.x]              = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
+                                                  + row * contractionSize + tileNumber * tileSize + subCol];
+          tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
+                                                  + (tileNumber * tileSize + subRow) * numBasis + col];
+          // make sure everyone's finished loading their pieces of the tiles
+          syncthreads();
+
+          double sum = 0;
+          for (unsigned int dummy = 0; dummy < tileSize; ++dummy) {
+            sum +=
+            tileStorage[leftBaseIndex + dummy] *
+            tileStorage[rightBaseIndex + dummy * tileSize];
+          }
+          dev_contractionResults[resultIndex] += sum;
+    }
+    resultTileIndex += gridDim.x;
+  }
+
+}
 __global__
 void
 doCudaContractions_Reduction_kernel(const unsigned int numberOfContractions,
@@ -274,18 +400,18 @@ runCudaTest(const CudaStyle cudaStyle,
   const unsigned int numberOfBlocks =
     min(maxNumberOfCudaBlocks,
         (unsigned int)ceil(numberOfContractions*numBasis*numBasis/float(numberOfThreadsPerBlock)));
-    
-    // Format the data the way we want and then copy it to the GPU      
+
+    // Format the data the way we want and then copy it to the GPU
     vector<float> contractionData_GPURight(contractionData_Right.size());
     vector<float> contractionData_GPULeft(contractionData_Right.size());
-    
+
     for (int cl = 0; cl < numberOfContractions; ++cl) {
       for (int qp = 0; qp < contractionSize; ++qp) {
         for(int rbf = 0; rbf < numBasis; ++rbf) {
           contractionData_GPURight.at(cl*numBasis*contractionSize + qp*numBasis + rbf) =
 	  contractionData_Right.at(cl*numBasis*contractionSize + rbf*contractionSize + qp);
 	}
-	
+
 	for(int lbf = 0; lbf < numBasis; ++lbf) {
           contractionData_GPULeft.at(cl*numBasis*contractionSize + qp*numBasis + lbf) =
 	  contractionData_Left.at(cl*numBasis*contractionSize + lbf*contractionSize + qp);
@@ -399,6 +525,156 @@ runCudaTest(const CudaStyle cudaStyle,
   return totalElapsedTime;
 }
 
+double
+runCudaTeamTest(const CudaStyle cudaStyle,
+            const unsigned int numberOfThreadsPerBlock,
+            const unsigned int numberOfRepeats,
+            const unsigned int maxNumberOfCudaBlocks,
+            const unsigned int numCells,
+            const unsigned int maxNumberOfContractions,
+            const unsigned int contractionSize,
+            const unsigned int numBasis,
+            const unsigned int memorySize,
+            const vector<float> & correctResults,
+            const ClearCacheStyle clearCacheStyle,
+            const int * const dev_junkDataToClearTheCache,
+            const unsigned int junkDataSize,
+            const vector<float> & contractionData_Right,
+            const vector<float> & contractionData_Left,
+            int * const dev_junkDataCounter,
+            unsigned int * const totalNumberOfRepeats,
+            float * const dev_contractionResults,
+            vector<float> * const contractionResults,
+            const unsigned int tileSize) {
+  const unsigned int numberOfBlocks =
+    min(maxNumberOfCudaBlocks,
+        (unsigned int)ceil(numCells*numBasis*numBasis/float(numberOfThreadsPerBlock)));
+
+    // Format the data the way we want and then copy it to the GPU
+    vector<float> contractionData_GPURight(contractionData_Right.size());
+    vector<float> contractionData_GPULeft(contractionData_Right.size());
+
+    for (int cl = 0; cl < numBasis; ++cl) {
+      for (int qp = 0; qp < contractionSize; ++qp) {
+        for(int rbf = 0; rbf < numBasis; ++rbf) {
+          contractionData_GPURight.at(cl*numBasis*contractionSize + qp*numBasis + rbf) =
+    contractionData_Right.at(cl*numBasis*contractionSize + rbf*contractionSize + qp);
+  }
+
+  for(int lbf = 0; lbf < numBasis; ++lbf) {
+          contractionData_GPULeft.at(cl*numBasis*contractionSize + lbf*contractionSize + qp) =
+    contractionData_Left.at(cl*numBasis*contractionSize + lbf*contractionSize + qp);
+  }
+      }
+    }
+
+    // Then copy it over
+    float * dev_contractionData_Right;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_Right,
+                              maxNumberOfContractions * contractionSize *
+            sizeof(float) * numBasis));
+    checkCudaError(cudaMemcpy(dev_contractionData_Right,
+                              &contractionData_GPURight[0],
+                              maxNumberOfContractions * contractionSize *
+            sizeof(float) * numBasis,
+                              cudaMemcpyHostToDevice));
+    float * dev_contractionData_Left;
+    checkCudaError(cudaMalloc((void **) &dev_contractionData_Left,
+                              maxNumberOfContractions * contractionSize *
+            sizeof(float) * numBasis));
+    checkCudaError(cudaMemcpy(dev_contractionData_Left,
+                              &contractionData_GPULeft[0],
+                              maxNumberOfContractions * contractionSize *
+            sizeof(float) * numBasis,
+                              cudaMemcpyHostToDevice));
+
+
+
+  timespec tic;
+  double totalElapsedTime = 0;
+  for (unsigned int repeatIndex = 0;
+       repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+         repeatIndex == 1) ||
+        clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      tic = getTimePoint();
+    }
+
+    // do the actual calculation
+    if (cudaStyle == CudaStyle_Slicing) {
+      doCudaContractions_Slicing_kernel<<<numCells*numBasis,
+        numberOfThreadsPerBlock,
+        contractionSize * sizeof(float)>>>(numCells,
+                                   contractionSize,
+                                   numBasis,
+                                   dev_contractionData_Right,
+                                   dev_contractionData_Left,
+                                   dev_contractionResults);
+    } else if (cudaStyle == CudaStyle_Tiling) {
+      doCudaContractions_Tiling_kernel<<<numberOfBlocks,
+        numberOfThreadsPerBlock,
+        2 * tileSize * tileSize * sizeof(float)>>>(numCells,
+                                                   contractionSize,
+                                                   tileSize,
+                                                   numBasis,
+                                                   dev_contractionData_Right,
+                                                   dev_contractionData_Left,
+                                                   dev_contractionResults);
+    } else {
+      fprintf(stderr, "unknown cuda style\n");
+      exit(1);
+    }
+
+    // wait for the kernel launch
+    checkCudaError(cudaPeekAtLastError());
+    checkCudaError(cudaDeviceSynchronize());
+    if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      const float elapsedTime = getElapsedTime(tic, toc);
+      totalElapsedTime += elapsedTime;
+
+      const unsigned int junkNumberOfBlocks =
+        min(maxNumberOfCudaBlocks,
+            (unsigned int)ceil(junkDataSize/float(numberOfThreadsPerBlock)));
+      doCudaClearCache_kernel<<<junkNumberOfBlocks,
+        numberOfThreadsPerBlock>>>(junkDataSize,
+                                   dev_junkDataToClearTheCache,
+                                   dev_junkDataCounter);
+      // wait for the kernel launch
+      checkCudaError(cudaPeekAtLastError());
+      checkCudaError(cudaDeviceSynchronize());
+    }
+  }
+  if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+    const timespec toc = getTimePoint();
+    const float elapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+    totalElapsedTime = elapsedTime;
+  }
+  // copy over the results from the gpu to the cpu
+  checkCudaError(cudaMemcpy(&contractionResults->at(0), dev_contractionResults,
+                            numCells *numBasis*numBasis* sizeof(float),
+                            cudaMemcpyDeviceToHost));
+  // check the results
+  checkAnswer(correctResults, *contractionResults,
+              numBasis, memorySize,
+              convertCudaStyleToString(cudaStyle));
+
+  // scrub the results
+  std::fill(contractionResults->begin(),
+            contractionResults->end(),
+            std::numeric_limits<float>::quiet_NaN());
+  checkCudaError(cudaMemcpy(dev_contractionResults, &contractionResults->at(0),
+                            numCells * numBasis*numBasis*sizeof(float),
+                            cudaMemcpyHostToDevice));
+
+
+  //Free data
+  checkCudaError(cudaFree(dev_contractionData_Right));
+  checkCudaError(cudaFree(dev_contractionData_Left));
+
+  return totalElapsedTime;
+}
 double
 runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      const unsigned int maxNumberOfCudaBlocks,
@@ -663,7 +939,7 @@ runKokkosTest(const unsigned int numberOfContractions,
 	}
 
 
-/*
+  /*
 
   // copy the data into the device views and ship them over
   for (unsigned int contractionIndex = 0;
@@ -780,15 +1056,15 @@ struct CFFS_Reduction_TeamFunctor {
 
   CFFS_Reduction_TeamFunctor(unsigned int _numCells, unsigned int _numLeftFields,
       unsigned int _numRightFields, unsigned int _numPoints,
-      LeftInputViewType _leftView, 
-      RightInputViewType _rightView, 
+      LeftInputViewType _leftView,
+      RightInputViewType _rightView,
       OutputViewType _outputView) :
-    numCells(_numCells), 
-    numLeftFields(_numLeftFields), 
-    numRightFields(_numRightFields), 
+    numCells(_numCells),
+    numLeftFields(_numLeftFields),
+    numRightFields(_numRightFields),
     numPoints(_numPoints),
-    leftView(_leftView), 
-    rightView(_rightView), 
+    leftView(_leftView),
+    rightView(_rightView),
     outputView(_outputView) {
       // Nothing to do
     }
@@ -803,11 +1079,11 @@ struct CFFS_Reduction_TeamFunctor {
     int matrixCol = matrixIndex % numRightFields;
 
     float sum = 0;
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, numPoints), 
+    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, numPoints),
         [&] (const unsigned int& i, float& sum) {
-          sum += leftView(myMatrix, matrixRow, i) 
+          sum += leftView(myMatrix, matrixRow, i)
                  * rightView(myMatrix, i, matrixCol);
-        }, 
+        },
         sum);
     outputView(myMatrix, matrixRow, matrixCol) = sum;
   }
@@ -890,7 +1166,7 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 	}
 
 
-/*
+  /*
 
   // copy the data into the device views and ship them over
   for (unsigned int contractionIndex = 0;
@@ -1008,15 +1284,15 @@ struct CFFS_Slicing_TeamFunctor {
 
   CFFS_Slicing_TeamFunctor(unsigned int _numCells, unsigned int _numLeftFields,
       unsigned int _numRightFields, unsigned int _numPoints,
-      LeftInputViewType _leftView, 
-      RightInputViewType _rightView, 
+      LeftInputViewType _leftView,
+      RightInputViewType _rightView,
       OutputViewType _outputView) :
-    numCells(_numCells), 
-    numLeftFields(_numLeftFields), 
-    numRightFields(_numRightFields), 
+    numCells(_numCells),
+    numLeftFields(_numLeftFields),
+    numRightFields(_numRightFields),
     numPoints(_numPoints),
-    leftView(_leftView), 
-    rightView(_rightView), 
+    leftView(_leftView),
+    rightView(_rightView),
     outputView(_outputView) {
       // Nothing to do
     }
@@ -1239,20 +1515,20 @@ struct CFFS_Tiling_TeamFunctor {
   const unsigned int tile_size;
 
 
-  CFFS_Tiling_TeamFunctor(const unsigned int _numCells, 
+  CFFS_Tiling_TeamFunctor(const unsigned int _numCells,
       const unsigned int _numLeftFields,
-      const unsigned int _numRightFields, 
+      const unsigned int _numRightFields,
       const unsigned int _numPoints,
-      LeftInputViewType _leftView, 
-      RightInputViewType _rightView, 
+      LeftInputViewType _leftView,
+      RightInputViewType _rightView,
       OutputViewType _outputView,
       const unsigned int _tile_size) :
-    numCells(_numCells), 
-    numLeftFields(_numLeftFields), 
-    numRightFields(_numRightFields), 
+    numCells(_numCells),
+    numLeftFields(_numLeftFields),
+    numRightFields(_numRightFields),
     numPoints(_numPoints),
-    leftView(_leftView), 
-    rightView(_rightView), 
+    leftView(_leftView),
+    rightView(_rightView),
     outputView(_outputView),
     tile_size(_tile_size)
     {
@@ -1270,7 +1546,7 @@ struct CFFS_Tiling_TeamFunctor {
 
     int tileCol = thread.team_rank() % tile_size;
     int tileRow = thread.team_rank() / tile_size;
-    
+
     int l = lTile*tile_size + tileRow;
     int r = rTile*tile_size + tileCol;
 
@@ -1298,7 +1574,7 @@ struct CFFS_Tiling_TeamFunctor {
 	    sum += left_tile(tileRow, i) * right_tile(i, tileCol);
 	}
 	totalSum += sum;
-	
+
 	thread.team_barrier();
     }
 
@@ -1435,8 +1711,8 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
 
   const team_policy tiling_policy(
       numberOfContractions
-      * ((numLeftFields-1/tile_size) +1) 
-      * ((numRightFields-1/tile_size) +1) , 
+      * ((numLeftFields-1/tile_size) +1)
+      * ((numRightFields-1/tile_size) +1) ,
       tile_size*tile_size );
 
 
@@ -1542,7 +1818,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{8, 16, 32, 64, 128, 512, 1024/*, 2048*/}};
+    {{/*8,*/ 16, 32, 64, 128, 512, 1024/*, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1616,6 +1892,14 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     cudaSwitchingTimesMatrix(numberOfContractionSizes,
                              vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    cudaSlicingTimesMatrix(numberOfContractionSizes,
+                           vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    cudaTilingTimesMatrix(numberOfContractionSizes,
+                            vector<float>(numberOfMemorySizes, 0));
 //#ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfContractionSizes,
@@ -1670,7 +1954,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 10;
+    const int numBasis = 16;
 
     const timespec thisSizesTic = getTimePoint();
 
@@ -1685,34 +1969,34 @@ int main(int argc, char* argv[]) {
     vector<float> contractionData_LayoutLeft_Left(contractionData_LayoutRight_Left.size());
     for (unsigned int contractionIndex = 0;
          contractionIndex < maxNumberOfContractions; ++contractionIndex) {
-      
+
       for (unsigned int entryIndex = 0;
            entryIndex < contractionSize * numBasis; ++entryIndex) {
-        
+
 	const unsigned int layoutRightIndex =
           contractionIndex * contractionSize*numBasis + entryIndex;
-        
+
 	contractionData_LayoutRight_Right[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
-        
+
 	contractionData_LayoutRight_Left[layoutRightIndex] =
           randomNumberGenerator(randomNumberEngine);
-        
+
 	const unsigned int layoutLeftIndex =
           entryIndex * maxNumberOfContractions + contractionIndex;
-        
+
 	contractionData_LayoutLeft_Right[layoutLeftIndex] =
           contractionData_LayoutRight_Right[layoutRightIndex];
-        
+
 	contractionData_LayoutLeft_Left[layoutLeftIndex] =
           contractionData_LayoutRight_Left[layoutRightIndex];
       }
     }
-    
+
     vector<float>
     contractionResults(maxNumberOfContractions*numBasis*numBasis,
                                     std::numeric_limits<float>::quiet_NaN());
-/*
+    /*
     // now, because we'll be working with cuda stuff, also allocate the inputs
     //  and output on the gpu and copy them over
     float * dev_contractionData_LayoutRight_Right;
@@ -1762,7 +2046,7 @@ int main(int argc, char* argv[]) {
                               maxNumberOfContractions * contractionSize *
 			      numBasis * sizeof(float),
                               cudaMemcpyHostToDevice));
-*/
+    */
     // for each memory size
     for (unsigned int memorySizeIndex = 0;
          memorySizeIndex < numberOfMemorySizes;
@@ -1925,7 +2209,7 @@ int main(int argc, char* argv[]) {
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
       {
-        const unsigned int numberOfThreadsPerBlock = 1024;
+        const unsigned int numberOfThreadsPerBlock = 256;
 
         cudaIndependent_TimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTest(CudaStyle_Independent,
@@ -1947,6 +2231,60 @@ int main(int argc, char* argv[]) {
                       &totalNumberOfRepeats,
                       dev_contractionResults,
                       &contractionResults);
+
+      }
+
+      {
+        const unsigned int numberOfThreadsPerBlock = numBasis;
+
+        cudaSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runCudaTeamTest(CudaStyle_Slicing,
+                      numberOfThreadsPerBlock,
+                      numberOfRepeats,
+                      maxNumberOfCudaBlocks,
+                      numberOfContractions,
+                      maxNumberOfContractions,
+                      contractionSize,
+                      numBasis,
+                      memorySize,
+                      correctResults,
+                      clearCacheStyle,
+                      dev_junkDataToClearTheCache,
+                      junkDataSize,
+                      contractionData_LayoutRight_Right,
+                      contractionData_LayoutRight_Left,
+                      dev_junkDataCounter,
+                      &totalNumberOfRepeats,
+                      dev_contractionResults,
+                      &contractionResults,
+                      0);
+
+      }
+
+      {
+        const unsigned int numberOfThreadsPerBlock = 256;
+
+        cudaTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runCudaTeamTest(CudaStyle_Tiling,
+                      numberOfThreadsPerBlock,
+                      numberOfRepeats,
+                      maxNumberOfCudaBlocks,
+                      numberOfContractions,
+                      maxNumberOfContractions,
+                      contractionSize,
+                      numBasis,
+                      memorySize,
+                      correctResults,
+                      clearCacheStyle,
+                      dev_junkDataToClearTheCache,
+                      junkDataSize,
+                      contractionData_LayoutRight_Right,
+                      contractionData_LayoutRight_Left,
+                      dev_junkDataCounter,
+                      &totalNumberOfRepeats,
+                      dev_contractionResults,
+                      &contractionResults,
+                      tile_size);
 
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -2079,7 +2417,10 @@ int main(int argc, char* argv[]) {
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
                                               &contractionResults);
+
+      
       }
+      
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2157,11 +2498,10 @@ int main(int argc, char* argv[]) {
     checkCudaError(cudaFree(dev_contractionData_LayoutRight_Left));
     */
     checkCudaError(cudaFree(dev_contractionResults));
-    
+
 
   }
-  fprintf(stderr, "beginning to write");
-  
+
   writeTimesMatrixToFile(contractionSizeMatrix,
                          prefix + string("contractionSize") + suffix);
   writeTimesMatrixToFile(numberOfContractionsMatrix,
@@ -2173,14 +2513,19 @@ int main(int argc, char* argv[]) {
   writeTimesMatrixToFile(ompTimesMatrix,
                          prefix + string("ompTimes") + suffix);
 
-fprintf(stderr, "about to print cuda times");
   writeTimesMatrixToFile(cudaIndependent_TimesMatrix,
                          prefix + string("cudaIndependentTimes") + suffix);
-fprintf(stderr,"printed cuda times");
+
   writeTimesMatrixToFile(cudaReduction_TimesMatrix,
                          prefix + string("cudaReductionTimes") + suffix);
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
+
+  writeTimesMatrixToFile(cudaSlicingTimesMatrix,
+                         prefix + string("cudaSlicingTimes") + suffix);
+
+  writeTimesMatrixToFile(cudaTilingTimesMatrix,
+                         prefix + string("cudaTiledTimes") + suffix);
 //#ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
                          prefix + string("kokkosOmpTimes") + suffix);
@@ -2221,7 +2566,7 @@ fprintf(stderr,"printed cuda times");
       exit(1);
     }
   } else {
-  
+
     const size_t expectedDataCounter =
       junkDataSum * size_t(numberOfMethods) * (numberOfRepeats + 1) * numberOfMemorySizes *
       numberOfContractionSizes;
@@ -2232,7 +2577,7 @@ fprintf(stderr,"printed cuda times");
               expectedDataCounter, float(expectedDataCounter));
       exit(1);
     }
-    
+
   }
 
 
