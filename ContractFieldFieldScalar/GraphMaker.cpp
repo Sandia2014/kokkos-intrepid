@@ -1097,32 +1097,37 @@ struct CFFS_Slicing_TeamFunctor {
 
 			}*/
 			if (numRightFields < team_size) {
-				int rankDivNumRight = thread.team_rank()/numRightFields;
+				int index = thread.team_rank();
+				int team_rank = index;
+				int rankDivNumRight = team_rank/numRightFields;
 				// Got rid of %, should be a little faster
-				int r = thread.team_rank() - rankDivNumRight * numRightFields;
+				int r = index - rankDivNumRight * numRightFields;
 				int teamSizeDivNumRight = team_size / numRightFields;
-				int lBaseMult = thread.league_rank() * (team_size/numRightFields);
-				int c = (lBaseMult+ rankDivNumRight) / numLeftFields;
+				int lBaseMult = thread.league_rank() * teamSizeDivNumRight;
+				int c = lBaseMult / numLeftFields;
 
 				
 				//int l = thread.league_rank() - (c * numLeftFields);
-				int l = (lBaseMult % numLeftFields) + rankDivNumRight;
 				Kokkos::View<float*, Kokkos::MemoryUnmanaged> 
 							shared_slice(thread.team_shmem(), numPoints * teamSizeDivNumRight);
-				int rowBase = thread.league_rank() * teamSizeDivNumRight % numLeftFields;
-				int index = thread.team_rank();
+				int rowBase = lBaseMult - c * numLeftFields;
+				int l = rowBase + rankDivNumRight;
+
 				for (int row = rowBase; row < rowBase+teamSizeDivNumRight; ++row) {
-				for (int p = thread.team_rank(); p < numPoints; p += team_size) { 
-				shared_slice(p+(row-rowBase)*numPoints) = leftView(c, row, p);
+				int indexOffset = (row-rowBase)*numPoints;
+				for (int p = team_rank; p < numPoints; p += team_size) { 
+				shared_slice(p+indexOffset) = leftView(c, row, p);
 				index += team_size;
 				}
 				}
 				thread.team_barrier();
 
 				float sum = 0;
+
+				int rankDivRightTimesP = rankDivNumRight*numPoints;
 				
 				for (int p = 0; p < numPoints; ++p) {
-					sum += shared_slice(p+(thread.team_rank()/numRightFields)*numPoints) * rightView(c, p, r);
+					sum += shared_slice(p+rankDivRightTimesP) * rightView(c, p, r);
 				}
 				outputView(c, l, r) = sum;
 			}
@@ -1807,7 +1812,7 @@ int main(int argc, char* argv[]) {
 		const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
 		const int numPoints = contractionSize;
-		const int numBasis = 16; 
+		const int numBasis = 32; 
 
 		const timespec thisSizesTic = getTimePoint();
 
