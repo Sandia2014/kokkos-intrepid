@@ -227,39 +227,39 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
 
     // for tileNumber in 0...numberOfTilesPerSide
     for (unsigned int tileNumber = 0;
-       tileNumber < numberOfHorizontalTiles; ++tileNumber) {
-         // calculate result tile indices
+        tileNumber < numberOfHorizontalTiles; ++tileNumber) {
+      // calculate result tile indices
 
-         const unsigned int resultTileRow = resultSubmatrixIndex / numberOfHorizontalTiles;
-         const unsigned int resultTileCol = resultSubmatrixIndex  -
-          resultTileRow * numberOfHorizontalTiles;
+      const unsigned int resultTileRow = resultSubmatrixIndex / numberOfHorizontalTiles;
+      const unsigned int resultTileCol = resultSubmatrixIndex  -
+        resultTileRow * numberOfHorizontalTiles;
 
-          // calculate this threads actual output index
-          const unsigned int row = resultTileRow * tileSize + subRow;
-          const unsigned int col = resultTileCol * tileSize + subCol;
+      // calculate this threads actual output index
+      const unsigned int row = resultTileRow * tileSize + subRow;
+      const unsigned int col = resultTileCol * tileSize + subCol;
 
-          // these are base indices into the shared memory
-          const unsigned int leftBaseIndex = subRow * tileSize;
-          const unsigned int rightBaseIndex = numbersPerTile + subCol;
+      // these are base indices into the shared memory
+      const unsigned int leftBaseIndex = subRow * tileSize;
+      const unsigned int rightBaseIndex = numbersPerTile + subCol;
 
-          const unsigned int resultIndex = row * numBasis + col;
+      const unsigned int resultIndex = row * numBasis + col;
 
-          // load the left and right tiles into shared memory
-          syncthreads();
-          tileStorage[threadIdx.x]              = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
-                                                  + row * contractionSize + tileNumber * tileSize + subCol];
-          tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
-                                                  + (tileNumber * tileSize + subRow) * numBasis + col];
-          // make sure everyone's finished loading their pieces of the tiles
-          syncthreads();
+      // load the left and right tiles into shared memory
+      syncthreads();
+      tileStorage[threadIdx.x]              = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
+        + row * contractionSize + tileNumber * tileSize + subCol];
+      tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
+        + (tileNumber * tileSize + subRow) * numBasis + col];
+      // make sure everyone's finished loading their pieces of the tiles
+      syncthreads();
 
-          double sum = 0;
-          for (unsigned int dummy = 0; dummy < tileSize; ++dummy) {
-            sum +=
-            tileStorage[leftBaseIndex + dummy] *
-            tileStorage[rightBaseIndex + dummy * tileSize];
-          }
-          dev_contractionResults[resultIndex] += sum;
+      double sum = 0;
+      for (unsigned int dummy = 0; dummy < tileSize; ++dummy) {
+        sum +=
+          tileStorage[leftBaseIndex + dummy] *
+          tileStorage[rightBaseIndex + dummy * tileSize];
+      }
+      dev_contractionResults[resultIndex] += sum;
     }
     resultTileIndex += gridDim.x;
   }
@@ -558,13 +558,13 @@ runCudaTeamTest(const CudaStyle cudaStyle,
       for (int qp = 0; qp < contractionSize; ++qp) {
         for(int rbf = 0; rbf < numBasis; ++rbf) {
           contractionData_GPURight.at(cl*numBasis*contractionSize + qp*numBasis + rbf) =
-    contractionData_Right.at(cl*numBasis*contractionSize + rbf*contractionSize + qp);
-  }
+            contractionData_Right.at(cl*numBasis*contractionSize + rbf*contractionSize + qp);
+        }
 
-  for(int lbf = 0; lbf < numBasis; ++lbf) {
+        for(int lbf = 0; lbf < numBasis; ++lbf) {
           contractionData_GPULeft.at(cl*numBasis*contractionSize + lbf*contractionSize + qp) =
-    contractionData_Left.at(cl*numBasis*contractionSize + lbf*contractionSize + qp);
-  }
+            contractionData_Left.at(cl*numBasis*contractionSize + lbf*contractionSize + qp);
+        }
       }
     }
 
@@ -1537,49 +1537,58 @@ struct CFFS_Tiling_TeamFunctor {
 
   KOKKOS_INLINE_FUNCTION
   void operator() (const team_member & thread) const {
-    // Num teams is (numLeftField * numRightField)/tile_size^2 * numCells
-    int numTiles = thread.league_size() / numCells;
-    int c = thread.league_rank() / numTiles;
-    int tilePosition = thread.league_rank() % numTiles;
-    int lTile = tilePosition / ((numRightFields-1) / tile_size + 1);
-    int rTile = tilePosition % ((numRightFields-1) / tile_size + 1);
+    //NOTE: THIS WHOLE THING WORKS ASSUMING NUMLEFTFIELDS==NUMRIGHTFIELDS
+    const unsigned int numBasis = numLeftFields;
 
-    int tileCol = thread.team_rank() % tile_size;
-    int tileRow = thread.team_rank() / tile_size;
+    //NOTE: This relies on contractionSize being a multiple of tileSize (16)
+    const unsigned int numberOfHorizontalTiles = numPoints / tile_size;
+    //NOTE: This relies on numBasis being a multiple of tileSize(16)
+    const unsigned int numberOfVerticalTiles = numBasis / tile_size;
 
-    int l = lTile*tile_size + tileRow;
-    int r = rTile*tile_size + tileCol;
+    const unsigned int subRow = thread.team_rank() / tile_size;
+    const unsigned int subCol = thread.team_rank() - subRow * tile_size;
 
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> left_tile(thread.team_shmem(), tile_size, tile_size);
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> right_tile(thread.team_shmem(), tile_size, tile_size);
+    unsigned int resultTileIndex = thread.league_rank();
 
-    float totalSum = 0;
-    for (int tileIndex = 0; tileIndex < ((numPoints-1)/ tile_size) + 1; ++tileIndex) {
-	if (tileIndex*tile_size + tileCol < numPoints && l < numLeftFields) {
-	    left_tile(tileRow, tileCol) = leftView(c, l, tileIndex*tile_size + tileCol);
-	}
-	else {
-	    left_tile(tileRow, tileCol) = 0.0;
-	}
-	if (tileIndex*tile_size + tileRow < numPoints && r < numRightFields) {
-	    right_tile(tileRow, tileCol) = rightView(c, tileIndex*tile_size + tileRow, r);
-	}
-	else {
-	    right_tile(tileRow, tileCol) = 0.0;
-	}
-	thread.team_barrier();
+    unsigned int resultSubmatrixIndex = resultTileIndex % (numberOfVerticalTiles * numberOfVerticalTiles);
+    unsigned int resultMatrix = resultTileIndex / (numberOfVerticalTiles * numberOfVerticalTiles);
 
-	float sum = 0;
-	for (int i = 0; i < tile_size; ++i) {
-	    sum += left_tile(tileRow, i) * right_tile(i, tileCol);
-	}
-	totalSum += sum;
+    Kokkos::View<float*, Kokkos::MemoryUnmanaged> left_tile(thread.team_shmem(), thread.team_size());
+    Kokkos::View<float*, Kokkos::MemoryUnmanaged> right_tile(thread.team_shmem(), thread.team_size());
 
-	thread.team_barrier();
-    }
+    // for tileNumber in 0...numberOfTilesPerSide
+    for (unsigned int tileNumber = 0;
+        tileNumber < numberOfHorizontalTiles; ++tileNumber) {
+      // calculate result tile indices
 
-    if (l < numLeftFields && r < numRightFields) {
-	outputView(c, l, r) = totalSum;
+      const unsigned int resultTileRow = resultSubmatrixIndex / numberOfHorizontalTiles;
+      const unsigned int resultTileCol = resultSubmatrixIndex  -
+        resultTileRow * numberOfHorizontalTiles;
+
+      // calculate this threads actual output index
+      const unsigned int row = resultTileRow * tile_size + subRow;
+      const unsigned int col = resultTileCol * tile_size + subCol;
+
+      // these are base indices into the shared memory
+      const unsigned int leftBaseIndex = subRow * tile_size;
+      const unsigned int rightBaseIndex = subCol;
+
+      // load the left and right tiles into shared memory
+      thread.team_barrier();
+      left_tile(thread.team_rank()) = 0; //leftView(resultMatrix, row, tileNumber*tile_size + subCol);
+      right_tile(thread.team_rank()) = 0; //rightView(resultMatrix, tileNumber*tile_size + subRow , col);
+
+      // make sure everyone's finished loading their pieces of the tiles
+      thread.team_barrier();
+
+      float sum = 0;
+      for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
+        sum +=
+          left_tile(leftBaseIndex + dummy) *
+          right_tile(rightBaseIndex + dummy * tile_size);
+      }
+      // TODO: Fix Indexing calculations
+      outputView(resultMatrix, row, col) += sum;
     }
   }
 
@@ -2233,7 +2242,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
-
+/*
       {
         const unsigned int numberOfThreadsPerBlock = numBasis;
 
@@ -2260,7 +2269,7 @@ int main(int argc, char* argv[]) {
                       0);
 
       }
-
+*/
       {
         const unsigned int numberOfThreadsPerBlock = 256;
 
@@ -2429,46 +2438,46 @@ int main(int argc, char* argv[]) {
         //  version because it gets copied into the view inside the function.
         kokkosSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runKokkosSlicingTest<DeviceType,
-                        KokkosContractionData>(numberOfContractions,
-                                              numberOfRepeats,
-                                              contractionSize,
-					      numBasis,
-					      numBasis,
-                                              memorySize,
-                                              contractionData_LayoutRight_Right,
-                                              contractionData_LayoutRight_Left,
-                                              correctResults,
-                                              string("Kokkos Slicing"),
-                                              clearCacheStyle,
-                                              junkDataToClearTheCache,
-                                              &junkDataCounter,
-                                              &totalNumberOfRepeats,
-                                              &contractionResults);
+          KokkosContractionData>(numberOfContractions,
+              numberOfRepeats,
+              contractionSize,
+              numBasis,
+              numBasis,
+              memorySize,
+              contractionData_LayoutRight_Right,
+              contractionData_LayoutRight_Left,
+              correctResults,
+              string("Kokkos Slicing"),
+              clearCacheStyle,
+              junkDataToClearTheCache,
+              &junkDataCounter,
+              &totalNumberOfRepeats,
+              &contractionResults);
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
-                             DeviceType>                   KokkosContractionData;
+                DeviceType>                   KokkosContractionData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
         kokkosTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runKokkosTilingTest<DeviceType,
-                        KokkosContractionData>(numberOfContractions,
-                                              numberOfRepeats,
-                                              contractionSize,
-					      numBasis,
-					      numBasis,
-                                              memorySize,
-                                              contractionData_LayoutRight_Right,
-                                              contractionData_LayoutRight_Left,
-                                              correctResults,
-                                              string("Kokkos Tiling"),
-                                              clearCacheStyle,
-                                              junkDataToClearTheCache,
-                                              &junkDataCounter,
-                                              &totalNumberOfRepeats,
-                                              &contractionResults,
-                                              tile_size);
+          KokkosContractionData>(numberOfContractions,
+              numberOfRepeats,
+              contractionSize,
+              numBasis,
+              numBasis,
+              memorySize,
+              contractionData_LayoutRight_Right,
+              contractionData_LayoutRight_Left,
+              correctResults,
+              string("Kokkos Tiling"),
+              clearCacheStyle,
+              junkDataToClearTheCache,
+              &junkDataCounter,
+              &totalNumberOfRepeats,
+              &contractionResults,
+              tile_size);
       }
 
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
