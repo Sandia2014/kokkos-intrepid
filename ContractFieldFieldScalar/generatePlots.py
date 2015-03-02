@@ -391,17 +391,17 @@ minSpeedup = 10
 cudaSlicingIndex = allNames.index('cudaSlicingTimes')
 cudaTilingIndex = allNames.index('cudaTilingTimes')
 
-maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[cudaTilingIndex] / allTimes[cudaSlicingIndex]))])
-minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[cudaTilingIndex] / allTimes[cudaSlicingIndex]))])
+maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[cudaSlicingIndex] / allTimes[cudaTilingIndex]))])
+minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[cudaSlicingIndex] / allTimes[cudaTilingIndex]))])
 colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
 
 fig3d = plt.figure(0)
 plt.clf()
-times = allTimes[cudaSlicingIndex]
-name = allNames[cudaSlicingIndex]
+times = allTimes[cudaTilingIndex]
+name = allNames[cudaTilingIndex]
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
-surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[cudaTilingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[cudaSlicingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
 surf.set_norm(colorNormalizer)
 plt.xlabel('log10(dotProductSize)')
 plt.ylabel('log10(memorySize)')
@@ -455,17 +455,17 @@ minSpeedup = 10
 kokkosSlicingIndex = allNames.index('kokkosSlicingTimes')
 kokkosTilingIndex = allNames.index('kokkosTilingTimes')
 
-maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[kokkosTilingIndex] / allTimes[kokkosSlicingIndex]))])
-minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[kokkosTilingIndex] / allTimes[kokkosSlicingIndex]))])
+maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[kokkosSlicingIndex] / allTimes[kokkosTilingIndex]))])
+minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[kokkosSlicingIndex] / allTimes[kokkosTilingIndex]))])
 colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
 
 fig3d = plt.figure(0)
 plt.clf()
-times = allTimes[kokkosSlicingIndex]
-name = allNames[kokkosSlicingIndex]
+times = allTimes[kokkosTilingIndex]
+name = allNames[kokkosTilingIndex]
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
-surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[kokkosTilingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[kokkosSlicingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
 surf.set_norm(colorNormalizer)
 plt.xlabel('log10(dotProductSize)')
 plt.ylabel('log10(memorySize)')
