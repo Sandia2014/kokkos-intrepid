@@ -32,6 +32,7 @@ kokkosTeamReductionTimes = numpy.loadtxt(open(prefix + 'kokkosTeamReductionTimes
 kokkosSlicingTimes = numpy.loadtxt(open(prefix + 'kokkosSlicingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosTilingTimes = numpy.loadtxt(open(prefix + 'kokkosTilingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 cudaTilingTimes = numpy.loadtxt(open(prefix + 'cudaTiledTimes' + suffix + '.csv', 'rb'),delimiter=',',skiprows=0)
+cudaSlicingTimes = numpy.loadtxt(open(prefix + 'cudaSlicingTimes' + suffix + '.csv', 'rb'),delimiter=',',skiprows=0)
 
 # set up a list of the times and names, for easy iteration later
 # TODO: make this consistent with the files that you read in and/or care about
@@ -53,17 +54,18 @@ allNames.append('cudaIndependent')
 #allNames.append('cudaSwitching')
 #allTimes.append(kokkosOmpTimes)
 #allNames.append('kokkosOmp')
-#allTimes.append(kokkosCudaIndependentTimes)
-#allNames.append('kokkosCudaIndependent')
-#allTimes.append(kokkosTeamReductionTimes)
-#allNames.append('kokkosTeamReductionTimes')
-#allTimes.append(kokkosSlicingTimes)
-#allNames.append('kokkosSlicingTimes')
-#allTimes.append(kokkosTilingTimes)
-#allNames.append('kokkosTilingTimes')
-
+allTimes.append(kokkosCudaIndependentTimes)
+allNames.append('kokkosCudaIndependent')
+allTimes.append(kokkosTeamReductionTimes)
+allNames.append('kokkosTeamReductionTimes')
+allTimes.append(kokkosSlicingTimes)
+allNames.append('kokkosSlicingTimes')
+allTimes.append(kokkosTilingTimes)
+allNames.append('kokkosTilingTimes')
 allTimes.append(cudaTilingTimes)
 allNames.append('cudaTilingTimes')
+allTimes.append(cudaSlicingTimes)
+allNames.append('cudaSlicingTimes')
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
 #makeImageFiles = False
@@ -377,6 +379,132 @@ for memorySizeIndex in [-1, 0]:
   if (makeImageFiles == True):
     sizeDescription = 'largestSize' if (memorySizeIndex == -1) else 'smallestSize'
     filename = outputPrefix + 'VersusCudaIndependent_2d_' + sizeDescription + suffix
+    plt.savefig(filename + '.pdf')
+    print 'saved file to %s' % filename
+  else:
+    plt.show()
+
+# Cuda Tiling vs Slicing
+maxSpeedup = -10
+minSpeedup = 10
+
+cudaSlicingIndex = allNames.index('cudaSlicingTimes')
+cudaTilingIndex = allNames.index('cudaTilingTimes')
+
+maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[cudaTilingIndex] / allTimes[cudaSlicingIndex]))])
+minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[cudaTilingIndex] / allTimes[cudaSlicingIndex]))])
+colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
+
+fig3d = plt.figure(0)
+plt.clf()
+times = allTimes[cudaTilingIndex]
+name = allNames[cudaTilingIndex]
+ax = fig3d.gca(projection='3d')
+ax.view_init(elev=0, azim=-111)
+surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[cudaSlicingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+surf.set_norm(colorNormalizer)
+plt.xlabel('log10(dotProductSize)')
+plt.ylabel('log10(memorySize)')
+ax.set_zlabel('log10(speedup) [unitless]')
+ax.set_zlim([minSpeedup, maxSpeedup])
+plt.title(name + 'cudaTiling vs cudaSlicing')
+
+if (makeImageFiles == True):
+  ax.view_init(elev=2, azim=-23)
+  filename = outputPrefix + 'CudaTilingVsSlicing_' + name + suffix
+  plt.savefig(filename + '.pdf')
+  print 'saved file to %s' % filename
+  if (makeOrbitFilesForMovies == True and timesIndex > 2):
+    for frameIndex in range(numberOfOrbitFrames):
+      ax.view_init(elev=2, azim=360 * frameIndex / (numberOfOrbitFrames - 1))
+      filename = outputPrefix + 'orbitFrames/CudaTilingVsSlicing_' + name + suffix + '_%02d.pdf' % frameIndex
+      plt.savefig(filename)
+      print 'saved file to %s' % filename
+else:
+  plt.show()
+
+fig2d = plt.figure(1)
+for memorySizeIndex in [-1, 0]:
+  legendNames = []
+  plt.cla()
+  for timesIndex in range(len(allTimes)):
+    times = allTimes[timesIndex]
+    name = allNames[timesIndex]
+    plt.plot(contractionSize[:, memorySizeIndex], allTimes[1][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
+    legendNames.append(name)
+  plt.xscale('log')
+  plt.yscale('log')
+  plt.title('speedup over cuda slicing for memory size %.2e' % memorySize[0, memorySizeIndex], fontsize=16)
+  plt.xlabel('dot product size', fontsize=16)
+  plt.ylabel('speedup [unitless]', fontsize=16)
+  plt.xlim([contractionSize[0, 0], contractionSize[-1, 0]])
+  ax2d.legend(legendNames, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
+  if (makeImageFiles == True):
+    sizeDescription = 'largestSize' if (memorySizeIndex == -1) else 'smallestSize'
+    filename = outputPrefix + 'CudaTilingVsSlicing_2d_' + sizeDescription + suffix
+    plt.savefig(filename + '.pdf')
+    print 'saved file to %s' % filename
+  else:
+    plt.show()
+
+# Kokkos Tiling vs Slicing
+maxSpeedup = -10
+minSpeedup = 10
+
+kokkosSlicingIndex = allNames.index('kokkosSlicingTimes')
+kokkosTilingIndex = allNames.index('kokkosTilingTimes')
+
+maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[kokkosTilingIndex] / allTimes[kokkosSlicingIndex]))])
+minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[kokkosTilingIndex] / allTimes[kokkosSlicingIndex]))])
+colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
+
+fig3d = plt.figure(0)
+plt.clf()
+times = allTimes[kokkosTilingIndex]
+name = allNames[kokkosTilingIndex]
+ax = fig3d.gca(projection='3d')
+ax.view_init(elev=0, azim=-111)
+surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[kokkosSlicingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+surf.set_norm(colorNormalizer)
+plt.xlabel('log10(dotProductSize)')
+plt.ylabel('log10(memorySize)')
+ax.set_zlabel('log10(speedup) [unitless]')
+ax.set_zlim([minSpeedup, maxSpeedup])
+plt.title(name + 'Kokkos Tiling vs Kokkos Slicing')
+
+if (makeImageFiles == True):
+  ax.view_init(elev=2, azim=-23)
+  filename = outputPrefix + 'KokkosTilingVsSlicing_' + name + suffix
+  plt.savefig(filename + '.pdf')
+  print 'saved file to %s' % filename
+  if (makeOrbitFilesForMovies == True and timesIndex > 2):
+    for frameIndex in range(numberOfOrbitFrames):
+      ax.view_init(elev=2, azim=360 * frameIndex / (numberOfOrbitFrames - 1))
+      filename = outputPrefix + 'orbitFrames/KokkosTilingVsSlicing_' + name + suffix + '_%02d.pdf' % frameIndex
+      plt.savefig(filename)
+      print 'saved file to %s' % filename
+else:
+  plt.show()
+
+fig2d = plt.figure(1)
+for memorySizeIndex in [-1, 0]:
+  legendNames = []
+  plt.cla()
+  for timesIndex in range(len(allTimes)):
+    times = allTimes[timesIndex]
+    name = allNames[timesIndex]
+    plt.plot(contractionSize[:, memorySizeIndex], allTimes[1][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
+    legendNames.append(name)
+  plt.xscale('log')
+  plt.yscale('log')
+  plt.title('speedup over kokkos slicing for memory size %.2e' % memorySize[0, memorySizeIndex], fontsize=16)
+  plt.xlabel('dot product size', fontsize=16)
+  plt.ylabel('speedup [unitless]', fontsize=16)
+  plt.xlim([contractionSize[0, 0], contractionSize[-1, 0]])
+  ax2d.legend(legendNames, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
+  if (makeImageFiles == True):
+    sizeDescription = 'largestSize' if (memorySizeIndex == -1) else 'smallestSize'
+    filename = outputPrefix + 'KokkosTilingVsSlicing_2d_' + sizeDescription + suffix
     plt.savefig(filename + '.pdf')
     print 'saved file to %s' % filename
   else:
