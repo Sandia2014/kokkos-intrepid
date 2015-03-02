@@ -1,7 +1,7 @@
 // -*- C++ -*-
 // ContractDataDataTensor.cu
 // a huge comparison of different ways of doing ContractDataDataTensor
-// Tyler Marklyn (outline stolen from Jeff Amelang), 2015
+// Ellen Hui (outline stolen from Jeff Amelang), 2015
 
 // c junk
 #include <cstdio>
@@ -29,311 +29,22 @@ using std::array;
 #define ENABLE_KOKKOS
 #ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
-#include <Kokkos_Core.hpp>
 #include <Kokkos_DualView.hpp>
 #endif // ENABLE_KOKKOS
 
-enum CudaStyle {CudaStyle_Independent,
-                CudaStyle_Reduction};
+#include "Utilities.hpp"
+#include "ContractDataDataTensorFunctors.hpp"
+
 
 enum KokkosStyle {KokkosStyle_Independent,
+                  KokkosStyle_TeamStride,
                   KokkosStyle_Depth1Reduction,
                   KokkosStyle_Depth2Reduction};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
 
-string
-convertCudaStyleToString(const CudaStyle cudaStyle) {
-  switch (cudaStyle) {
-  case CudaStyle_Independent:
-    return string("CudaStyle_Independent");
-  case CudaStyle_Reduction:
-    return string("CudaStyle_Reduction");
-  default:
-    fprintf(stderr, "invalid cuda style\n");
-    exit(1);
-  };
-}
-
-// stolen from http://stackoverflow.com/questions/14038589/what-is-the-canonical-way-to-check-for-errors-using-the-cuda-runtime-api
-#define checkCudaError(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline
-void
-gpuAssert(const cudaError_t code, const char *file, const int line, bool abort=true) {
-  if (code != cudaSuccess) {
-    fprintf(stderr,"GPU Error: %s %s %d\n", cudaGetErrorString(code), file, line);
-    if (abort == true) {
-      exit(code);
-    }
-  }
-}
-
-timespec
-getTimePoint() {
-  timespec timepoint;
-  clock_gettime(CLOCK_MONOTONIC, &timepoint);
-  return timepoint;
-}
-
-// yay for having to use pre-c++11 timing because of nvcc
-double
-getElapsedTime(const timespec & start, const timespec & end) {
-  timespec temp;
-  if ((end.tv_nsec-start.tv_nsec)<0) {
-    temp.tv_sec = end.tv_sec-start.tv_sec-1;
-    temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
-  } else {
-    temp.tv_sec = end.tv_sec-start.tv_sec;
-    temp.tv_nsec = end.tv_nsec-start.tv_nsec;
-  }
-  return double(temp.tv_sec) + double(temp.tv_nsec) / 1e9;
-}
-
-
-void
-writeTimesMatrixToFile(const vector<vector<float> > & times,
-                       const string filename) {
-
-  const unsigned int numberOfContractionSizes = times.size();
-  // yeah, yeah, kinda unsafe
-  const unsigned int numberOfMemorySizes = times[0].size();
-  char sprintfBuffer[500];
-  sprintf(sprintfBuffer, "%s.csv", filename.c_str());
-  FILE* file = fopen(sprintfBuffer, "w");
-  for (unsigned int contractionSizeIndex = 0;
-       contractionSizeIndex < numberOfContractionSizes;
-       ++contractionSizeIndex) {
-    for (unsigned int memorySizeIndex = 0;
-         memorySizeIndex < numberOfMemorySizes;
-         ++memorySizeIndex) {
-      if (memorySizeIndex > 0) {
-        fprintf(file, ", ");
-      }
-      fprintf(file, "%10.4e", times[contractionSizeIndex][memorySizeIndex]);
-    }
-    fprintf(file, "\n");
-  }
-  fclose(file);
-}
-
-void
-checkAnswer(const vector<float> & correctResults,
-            const vector<float> & calcResults,
-            const unsigned int contractionSize,
-            const unsigned int memorySize,
-            const string flavorName) {
-  for (unsigned int dotProductIndex = 0;
-       dotProductIndex < correctResults.size();
-       ++dotProductIndex) {
-    if (std::abs(correctResults[dotProductIndex] -
-                 calcResults[dotProductIndex]) /
-        std::abs(correctResults[dotProductIndex]) > 1e-4) {
-      fprintf(stderr, "invalid answer for dot product index %u for "
-              "flavor %s, "
-              "should be %e but we have %e, "
-              "contractionSize = %u, memorySize = %8.2e\n",
-              dotProductIndex, flavorName.c_str(),
-              correctResults[dotProductIndex],
-              calcResults[dotProductIndex],
-              contractionSize, float(memorySize));
-      exit(1);
-    }
-  }
-}
-
-
 #ifdef ENABLE_KOKKOS
-
-typedef Kokkos::TeamPolicy<> team_policy;
-typedef team_policy::member_type team_member;
-typedef Kokkos::DefaultExecutionSpace       Device ;
-typedef Kokkos::HostSpace::execution_space  Host ;
-
-
-
-template <class DeviceType, class KokkosJunkVector>
-struct KokkosFunctor_ClearCache {
-
-  typedef size_t     value_type;
-  typedef DeviceType device_type;
-
-  KokkosJunkVector _junkDataToClearTheCache;
-
-  KokkosFunctor_ClearCache(KokkosJunkVector dev_junkDataToClearTheCache) :
-    _junkDataToClearTheCache(dev_junkDataToClearTheCache) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int index,
-                  value_type & junkDataCounter) const {
-    junkDataCounter += _junkDataToClearTheCache(index);
-  }
-
-private:
-  KokkosFunctor_ClearCache();
-
-};
-
-
-
-template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
-struct ContractDataDataTensor_TeamDepth2Functor {
-  LeftViewType _leftInput;
-  RightViewType _rightInput;
-  OutputViewType _output;
-  int _numPoints;
-  int _dim1;
-  int _dim2;
-
-  ContractDataDataTensor_TeamDepth2Functor( int numPoints,
-      int dim1,
-      int dim2,
-      LeftViewType leftInput,
-      RightViewType rightInput,
-      OutputViewType output) :
-    _leftInput(leftInput),
-    _rightInput(rightInput),
-    _output(output),
-    _numPoints(numPoints),
-    _dim1(dim1),
-    _dim2(dim2)
-  {
-    // Nothing to do
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const team_member& thread) const {
-
-    const unsigned int elementIndex = thread.league_rank();
-    const unsigned int dim1 = thread.team_rank() / _dim2;
-    const unsigned int dim2 = thread.team_rank() % _dim2;
-
-    float sum = 0;
-    float tsum = 0;
-
-
-    for (unsigned int qp=0; qp < _numPoints; ++qp) {
-        sum +=  _leftInput(elementIndex, qp, dim1, dim2) *
-          _rightInput(elementIndex, qp, dim1, dim2);
-    }
-
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2),
-        [&] (const unsigned int& dim, float& localsum) {
-        localsum += sum;
-      }, tsum);
-
-    // FIXME everyone is writing this?
-    _output(elementIndex) = tsum;
-  }
-
-private:
-  ContractDataDataTensor_TeamDepth2Functor();
-};
-
-
-
-template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
-struct ContractDataDataTensor_TeamDepth1Functor {
-  LeftViewType _leftInput;
-  RightViewType _rightInput;
-  OutputViewType _output;
-  int _numPoints;
-  int _dim1;
-  int _dim2;
-
-  ContractDataDataTensor_TeamDepth1Functor( int numPoints,
-      int dim1,
-      int dim2,
-      LeftViewType leftInput,
-      RightViewType rightInput,
-      OutputViewType output) :
-    _leftInput(leftInput),
-    _rightInput(rightInput),
-    _output(output),
-    _numPoints(numPoints),
-    _dim1(dim1),
-    _dim2(dim2)
-  {
-    // Nothing to do
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const team_member& thread) const {
-
-    const unsigned int elementIndex = thread.league_rank();
-    const unsigned int dim2 = thread.team_rank();
-
-    float sum = 0;
-    float tsum = 0;
-
-
-    for (unsigned int qp=0; qp < _numPoints; ++qp) {
-      for (unsigned int d1=0; d1 < _dim1; ++d1) {
-        sum +=  _leftInput(elementIndex, qp, d1, dim2) *
-          _rightInput(elementIndex, qp, d1, dim2);
-      }
-    }
-
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim2),
-        [&] (const unsigned int& dim, float& localsum) {
-        localsum += sum;
-      }, tsum);
-
-    // FIXME everyone is writing this?
-    _output(elementIndex) = tsum;
-  }
-
-private:
-  ContractDataDataTensor_TeamDepth1Functor();
-};
-
-
-template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
-struct ContractDataDataTensorFunctor {
-  typedef DeviceType device_type;
-  LeftViewType _leftInput;
-  RightViewType _rightInput;
-  OutputViewType _output;
-  int _numPoints;
-  int _dim1;
-  int _dim2;
-
-  ContractDataDataTensorFunctor( int numPoints,
-      int dim1,
-      int dim2,
-      LeftViewType leftInput,
-      RightViewType rightInput,
-      OutputViewType output) :
-    _leftInput(leftInput),
-    _rightInput(rightInput),
-    _output(output),
-    _numPoints(numPoints),
-    _dim1(dim1),
-    _dim2(dim2)
-  {
-    // Nothing to do
-  }
-
-  // Parallelize over c-loop
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int elementIndex) const {
-
-    double tmp = 0;
-    for (int qp=0; qp < _numPoints; qp++) {
-      for (int iTens1=0; iTens1 < _dim1; iTens1++) {
-        for (int iTens2=0; iTens2 < _dim2; iTens2++) {
-          tmp += _leftInput(elementIndex, qp, iTens1, iTens2) *
-                  _rightInput(elementIndex, qp, iTens1, iTens2);
-        }
-      }
-    }
-    _output(elementIndex) = tmp;
-  }
-private:
-  ContractDataDataTensorFunctor();
-};
-
 
 
 
@@ -392,9 +103,9 @@ runKokkosTest(const unsigned int numberOfRepeats,
       for (int iTens1 = 0; iTens1 < dim1; ++iTens1) {
         int iTens1Dim = iTens1 * dim2;
         for (int iTens2 = 0; iTens2 < dim2; ++iTens2) {
-          kokkosInputData_A(cl, qp, iTens1, iTens2) = 
+          kokkosInputData_A(cl, qp, iTens1, iTens2) =
             dotProductData_LayoutRight_A[clDim + qpDim + iTens1Dim + iTens2];
-          kokkosInputData_B(cl, qp, iTens1, iTens2) = 
+          kokkosInputData_B(cl, qp, iTens1, iTens2) =
             dotProductData_LayoutRight_B[clDim + qpDim + iTens1Dim + iTens2];
         }
       }
@@ -421,7 +132,7 @@ runKokkosTest(const unsigned int numberOfRepeats,
   if (kokkosStyle == KokkosStyle_Independent) {
 
     // breaking formatting convention because holy freak that's long
-    ContractDataDataTensorFunctor<DeviceType,
+    ContractDataDataTensorIndependentFunctor<DeviceType,
       KokkosInputData,
       KokkosInputData,
       KokkosCalcResults>
@@ -466,6 +177,63 @@ runKokkosTest(const unsigned int numberOfRepeats,
       const timespec toc = getTimePoint();
       totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
     }
+  }
+
+  else if (kokkosStyle == KokkosStyle_TeamStride) {
+
+    ContractDataDataTensorTeamStrideFunctor<DeviceType,
+      KokkosInputData,
+      KokkosInputData,
+      KokkosCalcResults>
+        contractDataDataTensorFunctor(numPoints,
+            dim1,
+            dim2,
+            dev_kokkosInputData_A,
+            dev_kokkosInputData_B,
+            dev_kokkosCalcResults);
+
+    const team_policy reduction_policy(numCells, 512);
+    //const team_policy reduction_policy(numCells,
+    //    team_policy::team_size_max(ContractDataDataTensorTeamStrideFunctor
+    //      <DeviceType, KokkosInputData, KokkosInputData, KokkosCalcResults>));
+
+    timespec tic;
+    totalElapsedTime = 0;
+    for (unsigned int repeatIndex = 0;
+        repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+      *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+      if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+            repeatIndex == 1) ||
+          clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        tic = getTimePoint();
+      }
+
+
+      Kokkos::parallel_for( reduction_policy, contractDataDataTensorFunctor );
+      Kokkos::fence();
+
+
+      if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        const timespec toc = getTimePoint();
+        const float elapsedTime = getElapsedTime(tic, toc);
+        totalElapsedTime += elapsedTime;
+
+        // attempt to scrub all levels of cache
+        size_t partialJunkDataCounter = 0;
+        Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+            partialJunkDataCounter);
+        *junkDataCounter += partialJunkDataCounter;
+
+
+      }
+    }
+
+
+    if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+    }
+
   }
 
   else if (kokkosStyle == KokkosStyle_Depth1Reduction) {
@@ -610,10 +378,11 @@ int main(int argc, char* argv[]) {
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
     //{{25, 100, 500, 1000, 2000}};
-    {{64, 128, 256, 512, 1024, 2048}};
+    {{32, 64, 128, 256, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
-  const unsigned int dimSize = 8;
+  const unsigned int dimSize1 = 8;
+  const unsigned int dimSize2 = 4;
 
 
 #ifdef RAW_CUDA
@@ -701,6 +470,10 @@ int main(int argc, char* argv[]) {
                                      vector<float>(numberOfMemorySizes, 0));
 
   vector<vector<float> >
+    kokkosCudaTeamStrideTimesMatrix(numberOfContractionSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
     kokkosCudaTeamDepth1TimesMatrix(numberOfContractionSizes,
                                      vector<float>(numberOfMemorySizes, 0));
 
@@ -745,7 +518,7 @@ int main(int argc, char* argv[]) {
        ++contractionSizeIndex) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
     //const unsigned int dimVec = 8;
-    const unsigned int numPoints = contractionSize / (dimSize * dimSize);
+    const unsigned int numPoints = contractionSize / (dimSize1 * dimSize2);
     //const unsigned int numPoints = contractionSize / dimVec;
 
     const timespec thisSizesTic = getTimePoint();
@@ -852,12 +625,15 @@ int main(int argc, char* argv[]) {
 
 
   for (int cl=0; cl < numCells; cl++) {
+    int clDim = cl * numPoints * dimSize1 * dimSize2;
     double tmp = 0;
     for (int qp=0; qp < numPoints; qp++) {
-      for (int iTens1=0; iTens1 < dimSize; iTens1++) {
-        for (int iTens2=0; iTens2 < dimSize; iTens2++) {
-          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2] *
-                 dotProductData_LayoutRight_B[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2];
+      int qpDim = qp * dimSize1 * dimSize2;
+      for (int iTens1=0; iTens1 < dimSize1; iTens1++) {
+        int iTens1Dim = iTens1 * dimSize2;
+        for (int iTens2=0; iTens2 < dimSize2; iTens2++) {
+          tmp += dotProductData_LayoutRight_A[clDim + qpDim + iTens1Dim + iTens2] *
+                 dotProductData_LayoutRight_B[clDim + qpDim + iTens1Dim + iTens2];
         }
       }
     }
@@ -865,24 +641,6 @@ int main(int argc, char* argv[]) {
   }
 
 
-#if 0
-
-          // do the actual calculation
-          for (int cl = 0; cl < numCells; cl++) {
-            int clDim = cl * numPoints * dimVec;
-            float tmpVal = 0;
-            for (int qp = 0; qp < numPoints; qp++) {
-              int qpDim = qp * dimVec;
-              for (int iVec = 0; iVec < dimVec; iVec++) {
-                tmpVal += 
-                  dotProductData_LayoutRight_A[clDim + qpDim + iVec] *
-                  dotProductData_LayoutRight_B[clDim + qpDim + iVec];
-              } // D-loop
-            } // P-loop
-            calcResults[cl] = tmpVal;
-          } // C-loop
-
-#endif
           if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
             const timespec toc = getTimePoint();
             const float elapsedTime = getElapsedTime(tic, toc);
@@ -927,33 +685,20 @@ int main(int argc, char* argv[]) {
 #pragma omp parallel for default(none)                                  \
   shared(dotProductData_LayoutRight_A, dotProductData_LayoutRight_B,    \
          calcResults)
-//          for (int cl = 0; cl < numCells; cl++) {
-//            int clDim = cl * numPoints * dimVec;
-//            float tmpVal = 0;
-//            for (int qp = 0; qp < numPoints; qp++) {
-//              int qpDim = qp * dimVec;
-//              for (int iVec = 0; iVec < dimVec; iVec++) {
-//                tmpVal += 
-//                  dotProductData_LayoutRight_A[clDim + qpDim + iVec] *
-//                  dotProductData_LayoutRight_B[clDim + qpDim + iVec];
-//              } // D-loop
-//            } // P-loop
-//            calcResults[cl] = tmpVal;
-//          } // C-loop
-
 
   for (int cl=0; cl < numCells; cl++) {
     double tmp = 0;
     for (int qp=0; qp < numPoints; qp++) {
-      for (int iTens1=0; iTens1 < dimSize; iTens1++) {
-        for (int iTens2=0; iTens2 < dimSize; iTens2++) {
-          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2] *
-                 dotProductData_LayoutRight_B[cl * numPoints * dimSize * dimSize + qp * dimSize * dimSize + iTens1 * dimSize + iTens2];
+      for (int iTens1=0; iTens1 < dimSize1; iTens1++) {
+        for (int iTens2=0; iTens2 < dimSize2; iTens2++) {
+          tmp += dotProductData_LayoutRight_A[cl * numPoints * dimSize1 * dimSize2 + qp * dimSize1 * dimSize1 + iTens1 * dimSize2 + iTens2] *
+                 dotProductData_LayoutRight_B[cl * numPoints * dimSize1 * dimSize2 + qp * dimSize1 * dimSize2 + iTens1 * dimSize2 + iTens2];
         }
       }
     }
     calcResults[cl] = tmp;
   }
+
 
 
 
@@ -1099,8 +844,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -1125,8 +870,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -1151,8 +896,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -1177,8 +922,8 @@ int main(int argc, char* argv[]) {
                                               memorySize,
                                               numCells,
                                               numPoints,
-                                              dimSize,
-                                              dimSize,
+                                              dimSize1,
+                                              dimSize2,
                                               dotProductData_LayoutRight_A,
                                               dotProductData_LayoutRight_B,
                                               correctResults,
@@ -1189,6 +934,32 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &calcResults,
                                               KokkosStyle_Independent);
+      }
+
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosInputData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosCudaTeamStrideTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosTest<DeviceType,
+                        KokkosInputData>(numberOfRepeats,
+                                              memorySize,
+                                              numCells,
+                                              numPoints,
+                                              dimSize1,
+                                              dimSize2,
+                                              dotProductData_LayoutRight_A,
+                                              dotProductData_LayoutRight_B,
+                                              correctResults,
+                                              string("Kokkos cuda team stride"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &calcResults,
+                                              KokkosStyle_TeamStride);
       }
 
 
@@ -1251,6 +1022,10 @@ int main(int argc, char* argv[]) {
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
 
+  writeTimesMatrixToFile(kokkosCudaTeamStrideTimesMatrix,
+                         prefix + string("kokkosCudaTeamStrideTimes") + suffix);
+
+
   writeTimesMatrixToFile(kokkosCudaTeamDepth1TimesMatrix,
                          prefix + string("kokkosCudaTeamDepth1Times") + suffix);
 
@@ -1260,9 +1035,9 @@ int main(int argc, char* argv[]) {
 
 #if defined RAW_CUDA
   // Note, we assume that if RAW_CUDA is defined so is ENABLE_KOKKOS here
-  const unsigned int numberOfMethods = 9;
+  const unsigned int numberOfMethods = 10;
 #elif defined ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 6;
+  const unsigned int numberOfMethods = 7;
 #else
   const unsigned int numberOfMethods = 2;
 #endif
