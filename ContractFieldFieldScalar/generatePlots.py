@@ -397,11 +397,11 @@ colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
 
 fig3d = plt.figure(0)
 plt.clf()
-times = allTimes[cudaTilingIndex]
-name = allNames[cudaTilingIndex]
+times = allTimes[cudaSlicingIndex]
+name = allNames[cudaSlicingIndex]
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
-surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[cudaSlicingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[cudaTilingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
 surf.set_norm(colorNormalizer)
 plt.xlabel('log10(dotProductSize)')
 plt.ylabel('log10(memorySize)')
@@ -411,7 +411,7 @@ plt.title(name + 'cudaTiling vs cudaSlicing')
 
 if (makeImageFiles == True):
   ax.view_init(elev=2, azim=-23)
-  filename = outputPrefix + 'CudaTilingVsSlicing_' + name + suffix
+  filename = outputPrefix + 'CudaTilingVsSlicing_' + suffix
   plt.savefig(filename + '.pdf')
   print 'saved file to %s' % filename
   if (makeOrbitFilesForMovies == True and timesIndex > 2):
@@ -423,11 +423,12 @@ if (makeImageFiles == True):
 else:
   plt.show()
 
+#2d plots have cudaIndependent as 1
 fig2d = plt.figure(1)
 for memorySizeIndex in [-1, 0]:
   legendNames = []
   plt.cla()
-  for timesIndex in range(len(allTimes)):
+  for timesIndex in [cudaSlicingIndex, cudaTilingIndex]:
     times = allTimes[timesIndex]
     name = allNames[timesIndex]
     plt.plot(contractionSize[:, memorySizeIndex], allTimes[1][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
@@ -460,11 +461,11 @@ colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
 
 fig3d = plt.figure(0)
 plt.clf()
-times = allTimes[kokkosTilingIndex]
-name = allNames[kokkosTilingIndex]
+times = allTimes[kokkosSlicingIndex]
+name = allNames[kokkosSlicingIndex]
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
-surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[kokkosSlicingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+surf = ax.plot_surface(log10(contractionSize), log10(memorySize), log10(allTimes[kokkosTilingIndex] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
 surf.set_norm(colorNormalizer)
 plt.xlabel('log10(dotProductSize)')
 plt.ylabel('log10(memorySize)')
@@ -474,7 +475,7 @@ plt.title(name + 'Kokkos Tiling vs Kokkos Slicing')
 
 if (makeImageFiles == True):
   ax.view_init(elev=2, azim=-23)
-  filename = outputPrefix + 'KokkosTilingVsSlicing_' + name + suffix
+  filename = outputPrefix + 'KokkosTilingVsSlicing_' + suffix
   plt.savefig(filename + '.pdf')
   print 'saved file to %s' % filename
   if (makeOrbitFilesForMovies == True and timesIndex > 2):
@@ -490,7 +491,8 @@ fig2d = plt.figure(1)
 for memorySizeIndex in [-1, 0]:
   legendNames = []
   plt.cla()
-  for timesIndex in range(len(allTimes)):
+  # 2d times have cudaIndependent as 1
+  for timesIndex in [kokkosSlicingIndex, kokkosTilingIndex]:
     times = allTimes[timesIndex]
     name = allNames[timesIndex]
     plt.plot(contractionSize[:, memorySizeIndex], allTimes[1][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
