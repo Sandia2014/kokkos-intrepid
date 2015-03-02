@@ -1682,6 +1682,7 @@ struct CFFS_Tiling_TeamFunctor_1D {
     outputView(resultMatrix, row, col) = sum;
     resultTileIndex += thread.league_size();
   }
+}
 
   size_t team_shmem_size( int team_size ) const {
     return sizeof(float) * team_size * 2;
