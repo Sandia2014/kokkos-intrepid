@@ -973,8 +973,8 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 		numTeams = (numberOfContractions*numLeftFields*numRightFields
 				/ (32 / numPoints));
 	}
-	else if (numPoints > 256) { // Bigger than the max team size
-		threadsPerTeam = 256;
+	else if (numPoints > 32) { // Bigger than the max team size
+		threadsPerTeam = 32;
 		numTeams = numberOfContractions*numLeftFields*numRightFields;
 	}
 	else {
@@ -1684,7 +1684,7 @@ int main(int argc, char* argv[]) {
 	// ********************** < input> ******************************
 	// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 	const vector<unsigned int> contractionSizes =
-	{{16, 32, 64, 128, 256, 512, 1024}};
+	{{16, 32, 64, 128, 256, 512, 1024, 2048}};
 	const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
 	const unsigned int numberOfMemorySizes = 5;
 	const unsigned int maxNumberOfCudaBlocks = 256;
@@ -1812,7 +1812,7 @@ int main(int argc, char* argv[]) {
 		const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
 		const int numPoints = contractionSize;
-		const int numBasis = 512; 
+		const int numBasis = 8; 
 
 		const timespec thisSizesTic = getTimePoint();
 
