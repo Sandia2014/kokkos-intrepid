@@ -189,8 +189,8 @@ doCudaContractions_Slicing_kernel(const unsigned int numCells,
 __global__
 void
 doCudaContractions_Tiling_kernel(const unsigned int numCells,
-                                 const unsigned int contractionSize,
-                                 const unsigned int tileSize,
+                                 const unsigned int numPoints,
+                                 const unsigned int tile_size,
                                  const unsigned int numBasis,
                                  const float * const __restrict__ dev_contractionData_Right,
                                  const float * const __restrict__ dev_contractionData_Left,
@@ -198,57 +198,55 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
 
   extern __shared__ float tileStorage[];
 
-  const unsigned int numbersPerTile = tileSize * tileSize;
   //NOTE: This relies on contractionSize being a multiple of tileSize (16)
-  const unsigned int numberOfHorizontalTiles = contractionSize / tileSize;
+  const unsigned int numberOfPointTiles = numPoints / tile_size;
   //NOTE: This relies on numBasis being a multiple of tileSize(16)
-  const unsigned int numberOfVerticalTiles = numBasis / tileSize;
+  const unsigned int numberOfBasisTiles = numBasis / tile_size;
 
-  const unsigned int numberOfTiles = numCells * numberOfVerticalTiles * numberOfVerticalTiles;
+  const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
 
-  const unsigned int subRow = threadIdx.x / tileSize;
-  const unsigned int subCol = threadIdx.x  - subRow * tileSize;
+  const unsigned int subRow = threadIdx.x / tile_size;
+  const unsigned int subCol = threadIdx.x  - subRow * tile_size;
 
   unsigned int resultTileIndex = blockIdx.x;
 
   while (resultTileIndex < numberOfTiles) {
+    
+    unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
+    unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles);
 
-    unsigned int resultSubmatrixIndex = resultTileIndex % (numberOfVerticalTiles * numberOfVerticalTiles);
-    unsigned int resultMatrix = resultTileIndex / (numberOfVerticalTiles * numberOfVerticalTiles);
-
+    // calculate result tile indices
+    const unsigned int resultTileRow = resultSubmatrixIndex / numberOfPointTiles;
+    const unsigned int resultTileCol = resultSubmatrixIndex  - resultTileRow * numberOfPointTiles;
+    
+    // calculate this threads actual output index
+    const unsigned int row = resultTileRow * tile_size + subRow;
+    const unsigned int col = resultTileCol * tile_size + subCol;
+    
+    float sum = 0;
     // for tileNumber in 0...numberOfTilesPerSide
+    
     for (unsigned int tileNumber = 0;
-        tileNumber < numberOfHorizontalTiles; ++tileNumber) {
-      // calculate result tile indices
-
-      const unsigned int resultTileRow = resultSubmatrixIndex / numberOfHorizontalTiles;
-      const unsigned int resultTileCol = resultSubmatrixIndex  -
-        resultTileRow * numberOfHorizontalTiles;
-
-      // calculate this threads actual output index
-      const unsigned int row = resultTileRow * tileSize + subRow;
-      const unsigned int col = resultTileCol * tileSize + subCol;
-
+        tileNumber < numberOfPointTiles; ++tileNumber) {
+        
       // these are base indices into the shared memory
-      const unsigned int leftBaseIndex = subRow * tileSize;
-      const unsigned int rightBaseIndex = numbersPerTile + subCol;
+      const unsigned int leftBaseIndex = subRow * tile_size;
+      const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
 
       const unsigned int resultIndex = row * numBasis + col;
 
       // load the left and right tiles into shared memory
       syncthreads();
-      tileStorage[threadIdx.x]              = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
-        + row * contractionSize + tileNumber * tileSize + subCol];
-      tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
-        + (tileNumber * tileSize + subRow) * numBasis + col];
+      tileStorage[threadIdx.x]              = dev_contractionData_Left[resultMatrix * numBasis * numPoints
+        + row * numPoints + tileNumber * tile_size + subCol];
+      tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * numPoints
+        + (tileNumber * tile_size + subRow) * numBasis + col];
       // make sure everyone's finished loading their pieces of the tiles
       syncthreads();
-
-      double sum = 0;
-      for (unsigned int dummy = 0; dummy < tileSize; ++dummy) {
+      for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
         sum +=
           tileStorage[leftBaseIndex + dummy] *
-          tileStorage[rightBaseIndex + dummy * tileSize];
+          tileStorage[rightBaseIndex + dummy * tile_size];
       }
       dev_contractionResults[resultIndex] += sum;
     }
@@ -1539,6 +1537,8 @@ struct CFFS_Tiling_TeamFunctor {
     //NOTE: This relies on numBasis being a multiple of tileSize(16)
     const unsigned int numberOfBasisTiles = numBasis / tile_size;
 
+    const unsigned int numberOfTiles = numCells*numberOfBasisTiles*numberOfBasisTiles;
+
     const unsigned int subRow = thread.team_rank() / tile_size;
     const unsigned int subCol = thread.team_rank() - subRow * tile_size;
 
@@ -1547,7 +1547,7 @@ struct CFFS_Tiling_TeamFunctor {
     Kokkos::View<float**, Kokkos::MemoryUnmanaged> left_tile(thread.team_shmem(), tile_size, tile_size);
     Kokkos::View<float**, Kokkos::MemoryUnmanaged> right_tile(thread.team_shmem(), tile_size, tile_size);
 
-    while (resultTileIndex < numCells*numberOfBasisTiles*numberOfBasisTiles) {
+    while (resultTileIndex < numberOfTiles) {
     
     const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
     const unsigned int resultSubmatrixIndex = 
