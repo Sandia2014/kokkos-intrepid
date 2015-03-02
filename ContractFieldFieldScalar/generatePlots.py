@@ -31,6 +31,7 @@ kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentT
 kokkosTeamReductionTimes = numpy.loadtxt(open(prefix + 'kokkosTeamReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosSlicingTimes = numpy.loadtxt(open(prefix + 'kokkosSlicingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosTilingTimes = numpy.loadtxt(open(prefix + 'kokkosTilingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+kokkosTilingTimes1D = numpy.loadtxt(open(prefix + 'kokkosTilingTimes1D' + suffix + '.csv', 'rb'), delimiter=',', skiprows=0)
 cudaTilingTimes = numpy.loadtxt(open(prefix + 'cudaTiledTimes' + suffix + '.csv', 'rb'),delimiter=',',skiprows=0)
 cudaSlicingTimes = numpy.loadtxt(open(prefix + 'cudaSlicingTimes' + suffix + '.csv', 'rb'),delimiter=',',skiprows=0)
 
@@ -66,6 +67,8 @@ allTimes.append(cudaTilingTimes)
 allNames.append('cudaTilingTimes')
 allTimes.append(cudaSlicingTimes)
 allNames.append('cudaSlicingTimes')
+allNames.append('kokkosTilingTimes1D')
+allTimes.append(kokkosTilingTimes1D)
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
 #makeImageFiles = False

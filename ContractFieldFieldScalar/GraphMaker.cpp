@@ -494,7 +494,7 @@ runCudaTest(const CudaStyle cudaStyle,
                             numberOfContractions *numBasis*numBasis* sizeof(float),
                             cudaMemcpyDeviceToHost));
   // check the results
-  checkAnswer(correctResults, *contractionResults,
+ checkAnswer(correctResults, *contractionResults,
               numberOfContractions*numBasis*numBasis, memorySize,
               convertCudaStyleToString(cudaStyle));
 
@@ -1663,8 +1663,6 @@ struct CFFS_Tiling_TeamFunctor_1D {
       const unsigned int leftBaseIndex = subRow * tile_size;
       const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
 
-      const unsigned int resultIndex = row * numBasis + col;
-
       // load the left and right tiles into shared memory
       thread.team_barrier();
       tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
@@ -1865,8 +1863,8 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
   }
 
   // check the results
-  checkAnswer(correctResults, *contractionResults,
-      numberOfContractions*numLeftFields*numRightFields, memorySize,
+ checkAnswer(correctResults, *contractionResults,
+      contractionSize, memorySize,
       kokkosFlavor);
   // scrub the results
   std::fill(contractionResults->begin(),
@@ -2053,7 +2051,7 @@ runKokkosTilingTest_1D(const unsigned int numberOfContractions,
 
   // check the results
   checkAnswer(correctResults, *contractionResults,
-      numberOfContractions*numLeftFields*numRightFields, memorySize,
+      contractionSize, memorySize,
       kokkosFlavor);
   // scrub the results
   std::fill(contractionResults->begin(),
@@ -2105,7 +2103,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16,*/ 32, 64, 128, 512, 1024/*, 2048*/}};
+    {{/*8,*/ 16, 32, 64, 128, 512, 1024/*, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -2245,7 +2243,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 32;
+    const int numBasis = 16;
 
     const timespec thisSizesTic = getTimePoint();
 
@@ -2700,7 +2698,7 @@ int main(int argc, char* argv[]) {
                                               contractionData_LayoutRight_Right,
                                               contractionData_LayoutRight_Left,
                                               correctResults,
-                                              string("Kokkos Team Reduction"),
+                                              string("Kokkos Team Reduction 1D"),
                                               clearCacheStyle,
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
