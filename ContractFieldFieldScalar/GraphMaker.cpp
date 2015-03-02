@@ -1542,8 +1542,13 @@ struct CFFS_Tiling_TeamFunctor {
     const unsigned int subRow = thread.team_rank() / tile_size;
     const unsigned int subCol = thread.team_rank() - subRow * tile_size;
 
-    const unsigned int resultTileIndex = thread.league_rank();
+    unsigned int resultTileIndex = thread.league_rank();
 
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> left_tile(thread.team_shmem(), tile_size, tile_size);
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> right_tile(thread.team_shmem(), tile_size, tile_size);
+
+    while (resultTileIndex < numCells*numberOfBasisTiles*numberOfBasisTiles) {
+    
     const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
     const unsigned int resultSubmatrixIndex = 
       resultTileIndex - resultMatrix * numberOfBasisTiles * numberOfBasisTiles;
@@ -1555,9 +1560,6 @@ struct CFFS_Tiling_TeamFunctor {
     // calculate this threads actual output index
     const unsigned int row = resultTileRow * tile_size + subRow;
     const unsigned int col = resultTileCol * tile_size + subCol;
-
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> left_tile(thread.team_shmem(), tile_size, tile_size);
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> right_tile(thread.team_shmem(), tile_size, tile_size);
 
     float sum = 0;
     // for tileNumber in 0...numberOfTilesPerSide
@@ -1577,6 +1579,9 @@ struct CFFS_Tiling_TeamFunctor {
       thread.team_barrier();
     }
     outputView(resultMatrix, row, col) = sum;
+    resultTileIndex += thread.league_size();
+  }
+  
   }
 
   size_t team_shmem_size( int team_size ) const {
@@ -1704,9 +1709,13 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
           dev_kokkosContractionData_Right,
           dev_kokkosContractionResults,
           tile_size);
+    
+  const unsigned int numberOfTilingBlocks =
+    min(unsigned(1e4),
+            (unsigned int)ceil(numberOfContractions*numRightFields*numRightFields/(tile_size*tile_size)));
 
   const team_policy tiling_policy(
-      numberOfContractions * numLeftFields * numRightFields / (tile_size*tile_size),
+      numberOfTilingBlocks,
       tile_size*tile_size );
 
 
