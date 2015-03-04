@@ -2289,8 +2289,13 @@ int main(int argc, char* argv[]) {
 
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
-    const unsigned int maxNumberOfContractions =
+    
+	const unsigned int maxNumberOfContractions = memorySizes.back() / 4 /sizeof(float) / (contractionSize*numBasis);
+
+	/*
+	const unsigned int maxNumberOfContractions =
 			memorySizes.back() / sizeof(float) / (2*contractionSize * numBasis + numBasis*numBasis);
+	*/
 		vector<float> contractionData_LayoutRight_Right(maxNumberOfContractions *
 				contractionSize * numBasis);
 		vector<float> contractionData_LayoutRight_Left(contractionData_LayoutRight_Right.size());
@@ -2383,7 +2388,9 @@ int main(int argc, char* argv[]) {
 			const unsigned int memorySize = memorySizes[memorySizeIndex];
 
 			const unsigned int numberOfContractions =
-				max((unsigned int) (memorySize / sizeof(float) / (2*contractionSize * numBasis + numBasis*numBasis)), (unsigned int) 1);
+				max((unsigned int) (memorySize / 4 / sizeof(float) / (contractionSize * numBasis)), (unsigned int) 1); 
+			/*const unsigned int numberOfContractions =
+				max((unsigned int) (memorySize / sizeof(float) / (2*contractionSize * numBasis + numBasis*numBasis)), (unsigned int) 1); */
 			/*
 			   if (memorySize != 4 * sizeof(float) * numberOfContractions * contractionSize) {
 			   fprintf(stderr, "invalid memory size of %u for dot product size of "
