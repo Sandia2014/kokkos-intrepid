@@ -192,7 +192,7 @@ runKokkosTest(const unsigned int numberOfRepeats,
             dev_kokkosInputData_B,
             dev_kokkosCalcResults);
 
-    const team_policy reduction_policy(numCells, 512);
+    const team_policy reduction_policy(numCells, 64);
     //const team_policy reduction_policy(numCells,
     //    team_policy::team_size_max(ContractDataDataTensorTeamStrideFunctor
     //      <DeviceType, KokkosInputData, KokkosInputData, KokkosCalcResults>));
@@ -378,11 +378,18 @@ int main(int argc, char* argv[]) {
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
     //{{25, 100, 500, 1000, 2000}};
-    {{32, 64, 128, 256, 512, 1024, 2048}};
+    //{{64, 128, 256, 512, 1024, 2048}};
+    {{256, 512, 1024, 2048, 4096, 8192}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
-  const unsigned int dimSize1 = 8;
-  const unsigned int dimSize2 = 4;
+  const unsigned int dimSize1 = 16;
+  const unsigned int dimSize2 = 16;
+
+  if (dimSize1 * dimSize2 > contractionSizes.front()) {
+      fprintf(stderr, "contractionSize %d too small for dimsizes %d and %d\n",
+              contractionSizes.front(), dimSize1, dimSize2);
+      exit(1);
+  }
 
 
 #ifdef RAW_CUDA
@@ -519,6 +526,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
     //const unsigned int dimVec = 8;
     const unsigned int numPoints = contractionSize / (dimSize1 * dimSize2);
+
     //const unsigned int numPoints = contractionSize / dimVec;
 
     const timespec thisSizesTic = getTimePoint();
