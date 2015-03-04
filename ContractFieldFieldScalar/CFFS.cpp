@@ -2283,7 +2283,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 32;
+    const int numBasis = 16;
 
     const timespec thisSizesTic = getTimePoint();
 
