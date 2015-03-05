@@ -2143,11 +2143,11 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16,*/ 32, 64, 128, 512, 1024/*, 2048*/}};
+    {{8 /*, 16, 32, 64, 128, 512, 1024, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
-  const unsigned int numberOfMemorySizes = 5;
+  const unsigned int numberOfMemorySizes = 20;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
-  const unsigned int tile_size = 16;
+  const unsigned int tile_size = 8;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -2283,19 +2283,19 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 16;
+    const int numBasis = 8;
 
     const timespec thisSizesTic = getTimePoint();
 
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
-    
+    /*
 	const unsigned int maxNumberOfContractions = memorySizes.back() / 4 /sizeof(float) / (contractionSize*numBasis);
-
-	/*
+*/
+	
 	const unsigned int maxNumberOfContractions =
 			memorySizes.back() / sizeof(float) / (2*contractionSize * numBasis + numBasis*numBasis);
-	*/
+	
 		vector<float> contractionData_LayoutRight_Right(maxNumberOfContractions *
 				contractionSize * numBasis);
 		vector<float> contractionData_LayoutRight_Left(contractionData_LayoutRight_Right.size());
@@ -2386,11 +2386,11 @@ int main(int argc, char* argv[]) {
 				memorySizeIndex < numberOfMemorySizes;
 				++memorySizeIndex) {
 			const unsigned int memorySize = memorySizes[memorySizeIndex];
-
+/*
 			const unsigned int numberOfContractions =
-				max((unsigned int) (memorySize / 4 / sizeof(float) / (contractionSize * numBasis)), (unsigned int) 1); 
-			/*const unsigned int numberOfContractions =
-				max((unsigned int) (memorySize / sizeof(float) / (2*contractionSize * numBasis + numBasis*numBasis)), (unsigned int) 1); */
+				max((unsigned int) (memorySize / 4 / sizeof(float) / (contractionSize * numBasis)), (unsigned int) 1);  */ 
+			const unsigned int numberOfContractions =
+				max((unsigned int) (memorySize / sizeof(float) / (2*contractionSize * numBasis + numBasis*numBasis)), (unsigned int) 1); 
 			/*
 			   if (memorySize != 4 * sizeof(float) * numberOfContractions * contractionSize) {
 			   fprintf(stderr, "invalid memory size of %u for dot product size of "
@@ -2404,6 +2404,7 @@ int main(int argc, char* argv[]) {
       // ********************** < do serial> ***************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
       {
+		printf("serial\n");
         timespec tic;
         for (unsigned int repeatIndex = 0;
              repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
@@ -2543,7 +2544,8 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-      {
+	  {
+		printf("starting cuda\n");
         const unsigned int numberOfThreadsPerBlock = 256;
 
         cudaIndependent_TimesMatrix[contractionSizeIndex][memorySizeIndex] =
@@ -2568,6 +2570,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
+	  #if 0
       {
         const unsigned int numberOfThreadsPerBlock = numBasis;
 
@@ -2677,11 +2680,13 @@ int main(int argc, char* argv[]) {
       // ***************** </do cuda reductions> ***********************
       // ===============================================================
     */
+	  #endif
 //#ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
       {
+	  printf("kok omp\n");
 	  typedef Kokkos::OpenMP                             DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosContractionData;
@@ -2838,7 +2843,7 @@ int main(int argc, char* argv[]) {
       numberOfContractionsMatrix[contractionSizeIndex][memorySizeIndex] =
         numberOfContractions;
       memorySizeMatrix[contractionSizeIndex][memorySizeIndex] =
-        memorySize;
+        memorySizeIndex;
     }
 
     const timespec thisSizesToc = getTimePoint();
