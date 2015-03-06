@@ -39,13 +39,24 @@ using std::array;
 enum KokkosStyle {KokkosStyle_Independent,
                   KokkosStyle_TeamStride,
                   KokkosStyle_Depth1Reduction,
-                  KokkosStyle_Depth2Reduction};
+                  KokkosStyle_Depth2Reduction,
+                  KokkosStyle_Depth3Reduction};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
 
-#ifdef ENABLE_KOKKOS
+// Use cases, from Carter, Irina, and Denis
+//
+// DataData use case dd1:  t1 = t2 = 3, p = 8
+// DataData use case dd2:  t1 = t2 = 3, p = 27
+// DataData use case dd3:  t1 = t2 = 6, p = 27
+enum UseCase {DD1, DD2, DD3};
 
+
+// Declare desired use case here
+UseCase useCase = DD3;
+
+#ifdef ENABLE_KOKKOS
 
 
 template <class DeviceType, class KokkosInputData>
@@ -343,6 +354,67 @@ runKokkosTest(const unsigned int numberOfRepeats,
 
   }
 
+
+  else if (kokkosStyle == KokkosStyle_Depth3Reduction) {
+    ContractDataDataTensor_TeamDepth3Functor<DeviceType,
+      KokkosInputData,
+      KokkosInputData,
+      KokkosCalcResults>
+        contractDataDataTensorFunctor(numPoints,
+            dim1,
+            dim2,
+            dev_kokkosInputData_A,
+            dev_kokkosInputData_B,
+            dev_kokkosCalcResults);
+
+    const team_policy reduction_policy(numCells, dim1 * dim2 * numPoints);
+
+    timespec tic;
+    totalElapsedTime = 0;
+    for (unsigned int repeatIndex = 0;
+        repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+      *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+      if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+            repeatIndex == 1) ||
+          clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        tic = getTimePoint();
+      }
+
+
+      Kokkos::parallel_for( reduction_policy, contractDataDataTensorFunctor );
+      Kokkos::fence();
+
+
+      if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        const timespec toc = getTimePoint();
+        const float elapsedTime = getElapsedTime(tic, toc);
+        totalElapsedTime += elapsedTime;
+
+        // attempt to scrub all levels of cache
+        size_t partialJunkDataCounter = 0;
+        Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+            partialJunkDataCounter);
+        *junkDataCounter += partialJunkDataCounter;
+
+
+      }
+    }
+
+
+    if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+    }
+
+  }
+
+  else {
+    printf("Illegal kokkosStyle!");
+    exit(1);
+  }
+
+
+
   // copy over the results from the device to the host
   Kokkos::deep_copy(kokkosCalcResults, dev_kokkosCalcResults);
   for (unsigned int dotProductIndex = 0;
@@ -376,14 +448,58 @@ int main(int argc, char* argv[]) {
   // ===============================================================
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-  const vector<unsigned int> contractionSizes =
-    //{{25, 100, 500, 1000, 2000}};
-    //{{64, 128, 256, 512, 1024, 2048}};
-    {{256, 512, 1024, 2048, 4096, 8192}};
+  //
+  // Use cases, from Carter, Irina, and Denis
+  //
+  // DataData use case dd1:  t1 = t2 = 3, p = 8
+  //
+  // DataData use case dd2:  t1 = t2 = 3, p = 27
+  //
+  // DataData use case dd3:  t1 = t2 = 6, p = 27
+
+
+  vector<unsigned int> contractionSizes;
+  unsigned int dimSize1;
+  unsigned int dimSize2;
+
+
+  if (useCase == DD1) {
+   contractionSizes = {{3 * 3 * 8}};
+    //{{256, 512, 1024, 2048, 4096, 8192}};
+    dimSize1 = 3;
+    dimSize2 = 3;
+//    const unsigned int numPoints = 8;
+
+  }
+
+  else if (useCase == DD2) {
+   contractionSizes = {{3 * 3 * 27}};
+    dimSize1 = 3;
+    dimSize2 = 3;
+    // const unsigned int numPoints = 27;
+
+  }
+
+  else if (useCase == DD3) {
+   contractionSizes = {{6 * 6 * 27}};
+    dimSize1 = 6;
+    dimSize2 = 6;
+    // const unsigned int numPoints = 27;
+
+  }
+
+  else {
+    printf("Illegal DataData use case");
+    exit(1);
+  }
+
+
+  //const vector<unsigned int> contractionSizes =
+  //  {{256, 512, 1024, 2048, 4096, 8192}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 20;
-  const unsigned int dimSize1 = 16;
-  const unsigned int dimSize2 = 16;
+  //const unsigned int dimSize1 = 16;
+  //const unsigned int dimSize2 = 16;
 
   if (dimSize1 * dimSize2 > contractionSizes.front()) {
       fprintf(stderr, "contractionSize %d too small for dimsizes %d and %d\n",
@@ -486,6 +602,9 @@ int main(int argc, char* argv[]) {
 
   vector<vector<float> >
     kokkosCudaTeamDepth2TimesMatrix(numberOfContractionSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
+  vector<vector<float> >
+    kokkosCudaTeamDepth3TimesMatrix(numberOfContractionSizes,
                                      vector<float>(numberOfMemorySizes, 0));
 #endif
 
@@ -690,7 +809,7 @@ int main(int argc, char* argv[]) {
           }
 
           // do the actual calculation
-#pragma omp parallel for default(none)                                  \
+#pragma omp parallel                                   \
   shared(dotProductData_LayoutRight_A, dotProductData_LayoutRight_B,    \
          calcResults)
 
@@ -716,7 +835,7 @@ int main(int argc, char* argv[]) {
             ompTimesMatrix[contractionSizeIndex][memorySizeIndex] += elapsedTime;
 
             // attempt to scrub all levels of cache
-#pragma omp parallel default(none)                      \
+#pragma omp parallel                       \
   shared(junkDataCounter, junkDataToClearTheCache)
             {
               const size_t thisThreadsJunkDataCounter =
@@ -920,6 +1039,32 @@ int main(int argc, char* argv[]) {
 
       {
         typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosInputData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosCudaTeamDepth3TimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosTest<DeviceType,
+                        KokkosInputData>(numberOfRepeats,
+                                              memorySize,
+                                              numCells,
+                                              numPoints,
+                                              dimSize1,
+                                              dimSize2,
+                                              dotProductData_LayoutRight_A,
+                                              dotProductData_LayoutRight_B,
+                                              correctResults,
+                                              string("Kokkos cuda depth 3 reduction"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &calcResults,
+                                              KokkosStyle_Depth3Reduction);
+      }
+
+      {
+        typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float****, Kokkos::LayoutLeft,
                              DeviceType>                   KokkosInputData;
         // i pass in the layout right version even though this is the cuda
@@ -1039,13 +1184,16 @@ int main(int argc, char* argv[]) {
 
   writeTimesMatrixToFile(kokkosCudaTeamDepth2TimesMatrix,
                          prefix + string("kokkosCudaTeamDepth2Times") + suffix);
+
+  writeTimesMatrixToFile(kokkosCudaTeamDepth3TimesMatrix,
+                         prefix + string("kokkosCudaTeamDepth3Times") + suffix);
 #endif
 
 #if defined RAW_CUDA
   // Note, we assume that if RAW_CUDA is defined so is ENABLE_KOKKOS here
-  const unsigned int numberOfMethods = 10;
+  const unsigned int numberOfMethods = 11;
 #elif defined ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 7;
+  const unsigned int numberOfMethods = 8;
 #else
   const unsigned int numberOfMethods = 2;
 #endif

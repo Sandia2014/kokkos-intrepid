@@ -283,3 +283,61 @@ private:
   ContractDataDataTensorTeamStrideFunctor();
 };
 
+
+template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
+struct ContractDataDataTensor_TeamDepth3Functor {
+  LeftViewType _leftInput;
+  RightViewType _rightInput;
+  OutputViewType _output;
+  int _numPoints;
+  int _dim1;
+  int _dim2;
+
+  ContractDataDataTensor_TeamDepth3Functor( int numPoints,
+      int dim1,
+      int dim2,
+      LeftViewType leftInput,
+      RightViewType rightInput,
+      OutputViewType output) :
+    _leftInput(leftInput),
+    _rightInput(rightInput),
+    _output(output),
+    _numPoints(numPoints),
+    _dim1(dim1),
+    _dim2(dim2)
+  {
+    // Nothing to do
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const team_member& thread) const {
+
+    const unsigned int elementIndex = thread.league_rank();
+    const unsigned int threadIndex = thread.team_rank();
+
+    const unsigned int qp = threadIndex / (_dim1 * _dim2);
+    const unsigned int dim1 = threadIndex % (_dim1 * _dim2) / _dim2;
+    const unsigned int dim2 = threadIndex % _dim2;
+
+    float sum = 0;
+    float tsum = 0;
+
+
+    sum +=  _leftInput(elementIndex, qp, dim1, dim2) *
+            _rightInput(elementIndex, qp, dim1, dim2);
+
+    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2 * _numPoints),
+        [&] (const unsigned int& dim, float& localsum) {
+        localsum += sum;
+      }, tsum);
+
+    // FIXME everyone is writing this?
+    _output(elementIndex) = tsum;
+  }
+
+private:
+  ContractDataDataTensor_TeamDepth3Functor();
+};
+
+
+
