@@ -27,8 +27,6 @@ using std::array;
 #include <omp.h>
 #include <Kokkos_Core.hpp>
 
-typedef Kokkos::TeamPolicy<> team_policy;
-typedef team_policy::member_type team_member;
 typedef Kokkos::DefaultExecutionSpace       Device ;
 typedef Kokkos::HostSpace::execution_space  Host ;
 
@@ -38,6 +36,8 @@ struct KokkosFunctor_ClearCache {
 
   typedef size_t     value_type;
   typedef DeviceType device_type;
+  typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
+  typedef typename team_policy::member_type team_member;
 
   KokkosJunkVector _junkDataToClearTheCache;
 
@@ -65,6 +65,9 @@ struct ContractDataDataTensor_TeamDepth2Functor {
   int _numPoints;
   int _dim1;
   int _dim2;
+
+  typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
+  typedef typename team_policy::member_type team_member;
 
   ContractDataDataTensor_TeamDepth2Functor( int numPoints,
       int dim1,
@@ -121,6 +124,8 @@ struct ContractDataDataTensor_TeamDepth1Functor {
   int _numPoints;
   int _dim1;
   int _dim2;
+  typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
+  typedef typename team_policy::member_type team_member;
 
   ContractDataDataTensor_TeamDepth1Functor( int numPoints,
       int dim1,
@@ -169,6 +174,7 @@ private:
 };
 
 
+
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
 struct ContractDataDataTensorIndependentFunctor {
   typedef DeviceType device_type;
@@ -179,6 +185,8 @@ struct ContractDataDataTensorIndependentFunctor {
   int _dim1;
   int _dim2;
 
+  typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
+  typedef typename team_policy::member_type team_member;
   ContractDataDataTensorIndependentFunctor( int numPoints,
       int dim1,
       int dim2,
@@ -227,6 +235,8 @@ struct ContractDataDataTensorTeamStrideFunctor {
   int _dim1;
   int _dim2;
 
+  typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
+  typedef typename team_policy::member_type team_member;
   ContractDataDataTensorTeamStrideFunctor( int numPoints,
       int dim1,
       int dim2,
@@ -257,9 +267,9 @@ struct ContractDataDataTensorTeamStrideFunctor {
 
     for (unsigned int innerIdx = tIndex; innerIdx < cellSize; innerIdx += thread.team_size() ) {
       // Sane arithmetic version:
-      // qp = innerIdx / (_dim1 * _dim2)
-      // iTens1 = (innerIdx % (_dim1 * _dim2)) / _dim2
-      // iTens2 = innerIdx % _dim2
+      // const unsigned int qp = innerIdx / (_dim1 * _dim2);
+      // const unsigned int iTens1 = (innerIdx % (_dim1 * _dim2)) / _dim2;
+      // const unsigned int iTens2 = innerIdx % _dim2;
 
       // Optimized arithmetic version:
       const unsigned int qp = innerIdx / dim12;
@@ -270,6 +280,8 @@ struct ContractDataDataTensorTeamStrideFunctor {
       sum +=  _leftInput(cell, qp, iTens1, iTens2) *
        _rightInput(cell, qp, iTens1, iTens2);
     }
+
+    thread.team_barrier();
 
     Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()),
         [&] (const unsigned int& dummy, float& localsum) {
@@ -293,6 +305,8 @@ struct ContractDataDataTensor_TeamDepth3Functor {
   int _dim1;
   int _dim2;
 
+  typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
+  typedef typename team_policy::member_type team_member;
   ContractDataDataTensor_TeamDepth3Functor( int numPoints,
       int dim1,
       int dim2,

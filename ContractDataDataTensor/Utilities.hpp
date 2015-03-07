@@ -2,6 +2,9 @@
 // Various useful helper functions
 // Ellen Hui (mostly stolen from Jeff Amelang), 2015
 
+#ifndef UTILITIES_H
+#define UTILITIES_H
+
 // c junk
 #include <cstdio>
 #include <cstdlib>
@@ -127,3 +130,4 @@ checkAnswer(const vector<float> & correctResults,
     }
   }
 }
+#endif // UTILITIES_H
