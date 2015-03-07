@@ -230,10 +230,19 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
 
       // load the left and right tiles into shared memory
       syncthreads();
-      tileStorage[threadIdx.x]              = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
-        + row * contractionSize + tileNumber * tileSize + subCol];
-      tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
-        + (tileNumber * tileSize + subRow) * numBasis + col];
+
+      if (resultMatrix < numCells && row < numBasis && tileNumber*tileSize + subCol < numBasis)
+        tileStorage[threadIdx.x] = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
+                                   + row * contractionSize + tileNumber * tileSize + subCol];
+      else
+        tileStorage[threadIdx.x] = 0.0;
+
+
+      if (resultMatrix < numCells && tileNumber * tileSize + subRow < numBasis && col < numBasis)
+        tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
+                                                 + (tileNumber * tileSize + subRow) * numBasis + col];
+      else
+        tileStorage[threadIdx.x + blockDim.x] = 0.0;
       // make sure everyone's finished loading their pieces of the tiles
       syncthreads();
 
@@ -243,7 +252,8 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
           tileStorage[leftBaseIndex + dummy] *
           tileStorage[rightBaseIndex + dummy * tileSize];
       }
-      dev_contractionResults[resultIndex] += sum;
+      if (resultMatrix < numCells && row < numBasis && col < numBasis)
+        dev_contractionResults[resultIndex] += sum;
     }
     resultTileIndex += gridDim.x;
   }
@@ -1712,9 +1722,17 @@ struct CFFS_Tiling_TeamFunctor_1D {
 
       // load the left and right tiles into shared memory
       thread.team_barrier();
-      tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
-      tileStorage(thread.team_rank() + (tile_size * tile_size)) =
-                rightView(resultMatrix, tileNumber * tile_size + subRow, col);
+      if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numBasis)
+        tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
+      else 
+        tileStorage(thread.team_rank())  = 0.0;
+
+      if (resultMatrix < numCells && tileNumber * tile_size + subRow < numBasis && col < numBasis)
+        tileStorage(thread.team_rank() + (tile_size * tile_size)) =
+                 rightView(resultMatrix, tileNumber * tile_size + subRow, col);
+      else
+        tileStorage(thread.team_rank() + (tile_size * tile_size)) = 0.0;
+
       // make sure everyone's finished loading their pieces of the tiles
       thread.team_barrier();
       for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
@@ -1724,7 +1742,9 @@ struct CFFS_Tiling_TeamFunctor_1D {
       }
       thread.team_barrier();
     }
-    outputView(resultMatrix, row, col) = sum;
+    if (resultMatrix < numCells && row < numBasis && col < numBasis)
+      outputView(resultMatrix, row, col) = sum;
+
     resultTileIndex += thread.league_size();
   }
 }
@@ -2143,11 +2163,11 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{8 /*, 16, 32, 64, 128, 512, 1024, 2048*/}};
+    {{27 /*, 16, 32, 64, 128, 512, 1024, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
-  const unsigned int tile_size = 4;
+  const unsigned int tile_size = 8;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -2568,7 +2588,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
-      {
+      /*{
         const unsigned int numberOfThreadsPerBlock = numBasis;
 
         cudaSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
@@ -2594,7 +2614,7 @@ int main(int argc, char* argv[]) {
                       tile_size);
 
       
-      }
+      }*/
       
       {
         const unsigned int numberOfThreadsPerBlock = tile_size*tile_size;
@@ -2756,7 +2776,7 @@ int main(int argc, char* argv[]) {
 
       
       }
-      {
+     /* {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosContractionData;
@@ -2779,8 +2799,8 @@ int main(int argc, char* argv[]) {
               &junkDataCounter,
               &totalNumberOfRepeats,
               &contractionResults);
-      }
-      {
+      }*/
+     /* {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                 DeviceType>                   KokkosContractionData;
@@ -2804,8 +2824,8 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults,
               tile_size);
-      }
-      {
+      } */
+      /*{
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                 DeviceType>                   KokkosContractionData;
@@ -2829,7 +2849,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults,
               tile_size);
-      }
+      }*/
 
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
