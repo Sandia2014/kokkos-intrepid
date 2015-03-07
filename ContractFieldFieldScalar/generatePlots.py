@@ -29,8 +29,8 @@ cudaIndependentTimes = numpy.loadtxt(open(prefix + 'cudaIndependentTimes' + suff
 #kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosTeamReductionTimes = numpy.loadtxt(open(prefix + 'kokkosTeamReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-kokkosSlicingTimes = numpy.loadtxt(open(prefix + 'kokkosSlicingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-kokkosTilingTimes = numpy.loadtxt(open(prefix + 'kokkosTilingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#kokkosSlicingTimes = numpy.loadtxt(open(prefix + 'kokkosSlicingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+kokkosTilingTimes = numpy.loadtxt(open(prefix + 'kokkosTilingTimes1D' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 
 # set up a list of the times and names, for easy iteration later
 # TODO: make this consistent with the files that you read in and/or care about
@@ -56,8 +56,8 @@ allTimes.append(kokkosCudaIndependentTimes)
 allNames.append('kokkosCudaIndependent')
 allTimes.append(kokkosTeamReductionTimes)
 allNames.append('kokkosTeamReductionTimes')
-allTimes.append(kokkosSlicingTimes)
-allNames.append('kokkosSlicingTimes')
+#allTimes.append(kokkosSlicingTimes)
+#allNames.append('kokkosSlicingTimes')
 allTimes.append(kokkosTilingTimes)
 allNames.append('kokkosTilingTimes')
 
