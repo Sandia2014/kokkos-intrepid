@@ -231,14 +231,14 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
       // load the left and right tiles into shared memory
       syncthreads();
 
-      if (resultMatrix < numCells && row < numBasis && tileNumber*tileSize + subCol < numBasis)
+      if (resultMatrix < numCells && row < numBasis && tileNumber*tileSize + subCol < contractionSize)
         tileStorage[threadIdx.x] = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
                                    + row * contractionSize + tileNumber * tileSize + subCol];
       else
         tileStorage[threadIdx.x] = 0.0;
 
 
-      if (resultMatrix < numCells && tileNumber * tileSize + subRow < numBasis && col < numBasis)
+      if (resultMatrix < numCells && tileNumber * tileSize + subRow < contractionSize && col < numBasis)
         tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
                                                  + (tileNumber * tileSize + subRow) * numBasis + col];
       else
@@ -1589,9 +1589,9 @@ struct CFFS_Tiling_TeamFunctor {
     const unsigned int numBasis = numLeftFields;
 
     //NOTE: This relies on contractionSize being a multiple of tileSize (16)
-    const unsigned int numberOfPointTiles = numPoints / tile_size;
+    const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
     //NOTE: This relies on numBasis being a multiple of tileSize(16)
-    const unsigned int numberOfBasisTiles = numBasis / tile_size;
+    const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
     const unsigned int numberOfTiles = numCells*numberOfBasisTiles*numberOfBasisTiles;
 
@@ -1605,38 +1605,37 @@ struct CFFS_Tiling_TeamFunctor {
 
     while (resultTileIndex < numberOfTiles) {
 
-    const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
-    const unsigned int resultSubmatrixIndex =
-      resultTileIndex - resultMatrix * numberOfBasisTiles * numberOfBasisTiles;
+      const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
+      const unsigned int resultSubmatrixIndex =
+        resultTileIndex - resultMatrix * numberOfBasisTiles * numberOfBasisTiles;
 
-    const unsigned int resultTileRow = resultSubmatrixIndex / numberOfBasisTiles;
-    const unsigned int resultTileCol = resultSubmatrixIndex -
-      resultTileRow * numberOfBasisTiles;
+      const unsigned int resultTileRow = resultSubmatrixIndex / numberOfBasisTiles;
+      const unsigned int resultTileCol = resultSubmatrixIndex - resultTileRow * numberOfBasisTiles;
 
-    // calculate this threads actual output index
-    const unsigned int row = resultTileRow * tile_size + subRow;
-    const unsigned int col = resultTileCol * tile_size + subCol;
+      // calculate this threads actual output index
+      const unsigned int row = resultTileRow * tile_size + subRow;
+      const unsigned int col = resultTileCol * tile_size + subCol;
 
-    float sum = 0;
-    // for tileNumber in 0...numberOfTilesPerSide
-    for (unsigned int tileNumber = 0;
-        tileNumber < numberOfPointTiles; ++tileNumber) {
+      float sum = 0;
+      // for tileNumber in 0...numberOfTilesPerSide
+      for (unsigned int tileNumber = 0;
+          tileNumber < numberOfPointTiles; ++tileNumber) {
 
-      // load the left and right tiles into shared memory
-      left_tile(subRow, subCol) = leftView(resultMatrix, row, tileNumber*tile_size + subCol);
-      right_tile(subRow, subCol) = rightView(resultMatrix, tileNumber*tile_size + subRow, col);
+        // load the left and right tiles into shared memory
+        left_tile(subRow, subCol) = leftView(resultMatrix, row, tileNumber*tile_size + subCol);
+        right_tile(subRow, subCol) = rightView(resultMatrix, tileNumber*tile_size + subRow, col);
 
-      // make sure everyone's finished loading their pieces of the tiles
-      thread.team_barrier();
+        // make sure everyone's finished loading their pieces of the tiles
+        thread.team_barrier();
 
-      for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
-        sum += left_tile(subRow, dummy) * right_tile(dummy, subCol);
+        for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
+          sum += left_tile(subRow, dummy) * right_tile(dummy, subCol);
+        }
+        thread.team_barrier();
       }
-      thread.team_barrier();
+      outputView(resultMatrix, row, col) = sum;
+      resultTileIndex += thread.league_size();
     }
-    outputView(resultMatrix, row, col) = sum;
-    resultTileIndex += thread.league_size();
-  }
 
   }
 
@@ -1685,9 +1684,9 @@ struct CFFS_Tiling_TeamFunctor_1D {
   const unsigned int numBasis = numLeftFields;
 
   //NOTE: This relies on contractionSize being a multiple of tileSize (16)
-  const unsigned int numberOfPointTiles = numPoints / tile_size;
+  const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
   //NOTE: This relies on numBasis being a multiple of tileSize(16)
-  const unsigned int numberOfBasisTiles = numBasis / tile_size;
+  const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
   const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
 
@@ -1700,12 +1699,12 @@ struct CFFS_Tiling_TeamFunctor_1D {
 
   while (resultTileIndex < numberOfTiles) {
 
-    unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
-    unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles);
+    const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
+    const unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles);
 
     // calculate result tile indices
-    const unsigned int resultTileRow = resultSubmatrixIndex / numberOfPointTiles;
-    const unsigned int resultTileCol = resultSubmatrixIndex  - resultTileRow * numberOfPointTiles;
+    const unsigned int resultTileRow = resultSubmatrixIndex / numberOfBasisTiles;
+    const unsigned int resultTileCol = resultSubmatrixIndex  - resultTileRow * numberOfBasisTiles;
 
     // calculate this threads actual output index
     const unsigned int row = resultTileRow * tile_size + subRow;
@@ -1721,13 +1720,12 @@ struct CFFS_Tiling_TeamFunctor_1D {
       const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
 
       // load the left and right tiles into shared memory
-      thread.team_barrier();
-      if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numBasis)
+      if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
         tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
       else 
         tileStorage(thread.team_rank())  = 0.0;
 
-      if (resultMatrix < numCells && tileNumber * tile_size + subRow < numBasis && col < numBasis)
+      if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis)
         tileStorage(thread.team_rank() + (tile_size * tile_size)) =
                  rightView(resultMatrix, tileNumber * tile_size + subRow, col);
       else
@@ -1875,8 +1873,12 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
           dev_kokkosContractionResults,
           tile_size);
 
+
+  const unsigned int numBlocks = numberOfContractions *
+    (((numLeftFields - 1)/tile_size) + 1) * (((numRightFields -1)/tile_size) + 1);
+
   const team_policy tiling_policy(
-      numberOfContractions * numLeftFields * numRightFields / (tile_size*tile_size),
+      numBlocks,
       tile_size*tile_size );
 
 
@@ -2086,12 +2088,12 @@ runKokkosTilingTest_1D(const unsigned int numberOfContractions,
           dev_kokkosContractionResults,
           tile_size);
 
-  const unsigned int numberOfTilingBlocks =
-    min(unsigned(1e4),
-            (unsigned int)ceil(numberOfContractions*numRightFields*numRightFields/(tile_size*tile_size)));
+  const unsigned int targetBlocks = numberOfContractions * (((numRightFields - 1)/tile_size) + 1) * (((numLeftFields - 1)/tile_size) + 1);
+
+  const unsigned int numberOfTilingBlocks = min(unsigned(1e4),targetBlocks);
 
   const team_policy tiling_policy(
-      numberOfTilingBlocks,
+      targetBlocks,
       tile_size*tile_size );
 
 
@@ -2163,7 +2165,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{27 /*, 16, 32, 64, 128, 512, 1024, 2048*/}};
+    {{8, 27 /*, 16, 32, 64, 128, 512, 1024, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -2776,7 +2778,7 @@ int main(int argc, char* argv[]) {
 
       
       }
-     /* {
+      /*{
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosContractionData;
@@ -2800,7 +2802,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults);
       }*/
-     /* {
+      /*{
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                 DeviceType>                   KokkosContractionData;
@@ -2825,7 +2827,7 @@ int main(int argc, char* argv[]) {
               &contractionResults,
               tile_size);
       } */
-      /*{
+      {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                 DeviceType>                   KokkosContractionData;
@@ -2849,7 +2851,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults,
               tile_size);
-      }*/
+      }
 
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
