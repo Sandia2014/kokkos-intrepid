@@ -2143,15 +2143,15 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16,*/ 32, 64, 128, 512, 1024/*, 2048*/}};
+    {{8 /*, 16, 32, 64, 128, 512, 1024, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
-  const unsigned int tile_size = 16;
+  const unsigned int tile_size = 4;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 2 : 250;
+    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 10 : 250;
   const string machineName = "shadowfax";
   const string prefix = "data/ContractFieldFieldScalar_";
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -2593,9 +2593,11 @@ int main(int argc, char* argv[]) {
                       &contractionResults,
                       tile_size);
 
+      
       }
+      
       {
-        const unsigned int numberOfThreadsPerBlock = 256;
+        const unsigned int numberOfThreadsPerBlock = tile_size*tile_size;
 
         cudaTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTeamTest(CudaStyle_Tiling,
@@ -2620,6 +2622,7 @@ int main(int argc, char* argv[]) {
                       tile_size);
 
       }
+      
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
