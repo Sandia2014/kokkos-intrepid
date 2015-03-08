@@ -9,7 +9,7 @@ import csv
 
 
 
-prefix = 'data/ContractFieldFieldScalar_'
+prefix = 'rl125p216t16/ContractFieldFieldScalar_'
 outputPrefix = 'figures/'
 suffix = '_clearCache_shadowfax'
 
@@ -85,7 +85,7 @@ filename = outputPrefix + "FixedSize_RawTimes_Linear2d_UseCase" + str(3) + suffi
 plt.savefig(filename + ".pdf")
 
 print "saved file %s" % filename
-
+'''
 summArray = numberOfCells
 for timesArray in allTimes:
     summArray = np.vstack((summArray, timesArray))
@@ -99,3 +99,4 @@ for timesArray in allTimes:
         writer.writerows(summArray)
 
 print "saved file %s" % filename
+'''
