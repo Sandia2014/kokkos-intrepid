@@ -2165,11 +2165,11 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{8, /*27 , 16, 32, 64, 128, 512, 1024, 2048*/}};
+    {{64, /*27 , 16, 32, 64, 128, 512, 1024, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
-  const unsigned int tile_size = 8;
+  const unsigned int tile_size = 16;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -2305,7 +2305,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 8;
+    const int numBasis = 27;
 
     const timespec thisSizesTic = getTimePoint();
 
