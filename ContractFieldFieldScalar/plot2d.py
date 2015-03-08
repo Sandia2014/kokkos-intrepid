@@ -50,14 +50,14 @@ plt.plot(numberOfCells, serialTimes,
 
 plt.xscale('log')
 plt.yscale('log')
-plt.title('raw times for use case number %d' % 1, fontsize=16)
+plt.title('raw times for use case number %d' % 3, fontsize=16)
 plt.xlabel('number of cells', fontsize=16)
 plt.ylabel('raw time [seconds]', fontsize=16)
 plt.xlim(numberOfCells[0], numberOfCells[-1])
 
 ax2d.legend(labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
 
-filename = outputPrefix + "FixedSize_RawTimes_2d_UseCase" + str(1) + suffix
+filename = outputPrefix + "FixedSize_RawTimes_2d_UseCase" + str(3) + suffix
 plt.savefig(filename + ".pdf")
 
 print "saved file %s" % filename
@@ -74,14 +74,14 @@ plt.plot(numberOfCells, serialTimes,
 
 plt.xscale('linear')
 plt.yscale('linear')
-plt.title('raw times for use case number %d' % 1, fontsize=16)
+plt.title('raw times for use case number %d' % 3, fontsize=16)
 plt.xlabel('number of cells', fontsize=16)
 plt.ylabel('raw time [seconds]', fontsize=16)
 plt.xlim(numberOfCells[0], numberOfCells[-1])
 
 ax2d.legend(labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
 
-filename = outputPrefix + "FixedSize_RawTimes_Linear2d_UseCase" + str(1) + suffix
+filename = outputPrefix + "FixedSize_RawTimes_Linear2d_UseCase" + str(3) + suffix
 plt.savefig(filename + ".pdf")
 
 print "saved file %s" % filename
@@ -93,7 +93,7 @@ for timesArray in allTimes:
     allLabels = np.asarray(["Number of Cells"] + labels)
     summArray = np.column_stack([allLabels, summArray])
 
-    filename = "data/FixedSize_UseCase" + str(1) + "_summary.csv"
+    filename = "data/FixedSize_UseCase" + str(3) + "_summary.csv"
     with open(filename, "wb") as f:
         writer = csv.writer(f)
         writer.writerows(summArray)
