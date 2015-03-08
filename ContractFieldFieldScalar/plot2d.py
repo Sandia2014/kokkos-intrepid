@@ -9,7 +9,7 @@ import csv
 
 
 
-prefix = 'data/ContractFieldFieldScalar'
+prefix = 'data/ContractFieldFieldScalar_'
 outputPrefix = 'figures/'
 suffix = '_clearCache_shadowfax'
 
@@ -20,7 +20,7 @@ serialTimes = np.loadtxt(open(prefix + 'serialTimes' + suffix + '.csv','rb'),del
 kokkosOmpTimes = np.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = np.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaTeamReductionTimes = np.loadtxt(open(prefix + 'kokkosTeamReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-kokkosCudaTiling = np.loadtxt(open(prefix + 'kokkosCudaTilingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+kokkosCudaTiling = np.loadtxt(open(prefix + 'kokkosTilingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 
 
 
@@ -39,66 +39,61 @@ box2d = ax2d.get_position()
 ax2d.set_position([box2d.x0, box2d.y0, box2d.width * 0.60, box2d.height])
 bbox_to_anchor2d = (1.87, 0.5)
 
-#log plots
-for useCase in xrange(len(numberOfCells)):
+#log plotsfor useCase in xrange(len(numberOfCells)):
     plt.cla()
-    plt.plot(numberOfCells[useCase], serialTimes[useCase],
-             numberOfCells[useCase], kokkosOmpTimes[useCase],
-             numberOfCells[useCase], kokkosCudaIndependentTimes[useCase],
-             numberOfCells[useCase], kokkosCudaTeamReductionTimes[useCase],
-             numberOfCells[useCase], kokkosCudaTiling[useCase])
+    plt.plot(numberOfCells, serialTimes,
+             numberOfCells, kokkosOmpTimes,
+             numberOfCells, kokkosCudaIndependentTimes,
+             numberOfCells, kokkosCudaTeamReductionTimes,
+             numberOfCells, kokkosCudaTiling)
 
 
     plt.xscale('log')
     plt.yscale('log')
-    plt.title('raw times for use case number %d' % (useCase + 1), fontsize=16)
+    plt.title('raw times for use case number %d' % 1, fontsize=16)
     plt.xlabel('number of cells', fontsize=16)
     plt.ylabel('raw time [seconds]', fontsize=16)
-    plt.xlim(numberOfCells[useCase][0], numberOfCells[useCase][-1])
+    plt.xlim(numberOfCells[0], numberOfCells[-1])
 
     ax2d.legend(labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
 
-    filename = outputPrefix + "FixedSize_RawTimes_2d_UseCase" + str(useCase + 1) + suffix
+    filename = outputPrefix + "FixedSize_RawTimes_2d_UseCase" + str(1) + suffix
     plt.savefig(filename + ".pdf")
 
     print "saved file %s" % filename
 
 
-#linear plots
-for useCase in xrange(len(numberOfCells)):
+#linear plotsfor useCase in xrange(len(numberOfCells)):
     plt.cla()
-    plt.plot(numberOfCells[useCase], serialTimes[useCase],
-             numberOfCells[useCase], kokkosOmpTimes[useCase],
-             numberOfCells[useCase], kokkosCudaIndependentTimes[useCase],
-             numberOfCells[useCase], kokkosCudaTeamReductionTimes[useCase],
-             numberOfCells[useCase], kokkosCudaTiling[useCase])
+    plt.plot(numberOfCells, serialTimes,
+             numberOfCells, kokkosOmpTimes,
+             numberOfCells, kokkosCudaIndependentTimes,
+             numberOfCells, kokkosCudaTeamReductionTimes,
+             numberOfCells, kokkosCudaTiling)
 
 
     plt.xscale('linear')
     plt.yscale('linear')
-    plt.title('raw times for use case number %d' % (useCase + 1), fontsize=16)
+    plt.title('raw times for use case number %d' % 1, fontsize=16)
     plt.xlabel('number of cells', fontsize=16)
     plt.ylabel('raw time [seconds]', fontsize=16)
-    plt.xlim(numberOfCells[useCase][0], numberOfCells[useCase][-1])
+    plt.xlim(numberOfCells[0], numberOfCells1[-1])
 
     ax2d.legend(labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
 
-    filename = outputPrefix + "FixedSize_RawTimes_Linear2d_UseCase" + str(useCase + 1) + suffix
+    filename = outputPrefix + "FixedSize_RawTimes_Linear2d_UseCase" + str(1) + suffix
     plt.savefig(filename + ".pdf")
 
     print "saved file %s" % filename
 
-
-
-for useCase in xrange(len(numberOfCells)):
-    summArray = numberOfCells[useCase]
+    summArray = numberOfCells
     for timesArray in allTimes:
-        summArray = np.vstack((summArray, timesArray[useCase]))
+        summArray = np.vstack((summArray, timesArray))
 
     allLabels = np.asarray(["Number of Cells"] + labels)
     summArray = np.column_stack([allLabels, summArray])
 
-    filename = "data/FixedSize_UseCase" + str(useCase + 1) + "_summary.csv"
+    filename = "data/FixedSize_UseCase" + str(1) + "_summary.csv"
     with open(filename, "wb") as f:
             writer = csv.writer(f)
             writer.writerows(summArray)
