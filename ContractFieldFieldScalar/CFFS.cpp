@@ -2156,7 +2156,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16,*/ 32, 64, 128, 512, 1024/*, 2048*/}};
+    {{/*8, 16, 32,*/ 216, /*128, 512, 1024/*, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -2296,7 +2296,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 8;
+    const int numBasis = 125;
 
     const timespec thisSizesTic = getTimePoint();
 
@@ -2581,6 +2581,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
+      /*
       {
         const unsigned int numberOfThreadsPerBlock = numBasis;
 
@@ -2633,6 +2634,7 @@ int main(int argc, char* argv[]) {
                       tile_size);
 
       }
+      */
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
@@ -2766,6 +2768,7 @@ int main(int argc, char* argv[]) {
 
       
       }
+      /*
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2790,6 +2793,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults);
       }
+      
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2806,6 +2810,7 @@ int main(int argc, char* argv[]) {
               memorySize,
               contractionData_LayoutRight_Right,
               contractionData_LayoutRight_Left,
+	      
               correctResults,
               string("Kokkos Tiling"),
               clearCacheStyle,
@@ -2814,14 +2819,14 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults,
               tile_size);
-      }
+      }*/
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                 DeviceType>                   KokkosContractionData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
-        kokkosTilingTimesMatrix1D[contractionSizeIndex][memorySizeIndex] =
+        kokkosTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runKokkosTilingTest_1D<DeviceType,
           KokkosContractionData>(numberOfContractions,
               numberOfRepeats,
