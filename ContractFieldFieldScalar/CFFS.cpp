@@ -1192,7 +1192,6 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 
 
 	/*
-
 	// copy the data into the device views and ship them over
 	for (unsigned int contractionIndex = 0;
 	contractionIndex < numberOfContractions; ++contractionIndex) {
@@ -1315,6 +1314,8 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 
 	return totalElapsedTime;
 }
+
+
 
 
 template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
