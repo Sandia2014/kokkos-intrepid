@@ -1675,9 +1675,9 @@ struct CFFS_Tiling_TeamFunctor_1D {
   const unsigned int numBasis = numLeftFields;
 
   //NOTE: This relies on contractionSize being a multiple of tileSize (16)
-  const unsigned int numberOfPointTiles = numPoints / tile_size;
+  const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
   //NOTE: This relies on numBasis being a multiple of tileSize(16)
-  const unsigned int numberOfBasisTiles = numBasis / tile_size;
+  const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
   const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
 
@@ -1690,12 +1690,12 @@ struct CFFS_Tiling_TeamFunctor_1D {
 
   while (resultTileIndex < numberOfTiles) {
 
-    unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
-    unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles);
+    const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
+    const unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles);
 
     // calculate result tile indices
-    const unsigned int resultTileRow = resultSubmatrixIndex / numberOfPointTiles;
-    const unsigned int resultTileCol = resultSubmatrixIndex  - resultTileRow * numberOfPointTiles;
+    const unsigned int resultTileRow = resultSubmatrixIndex / numberOfBasisTiles;
+    const unsigned int resultTileCol = resultSubmatrixIndex  - resultTileRow * numberOfBasisTiles;
 
     // calculate this threads actual output index
     const unsigned int row = resultTileRow * tile_size + subRow;
@@ -1711,10 +1711,17 @@ struct CFFS_Tiling_TeamFunctor_1D {
       const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
 
       // load the left and right tiles into shared memory
-      thread.team_barrier();
-      tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
-      tileStorage(thread.team_rank() + (tile_size * tile_size)) =
-                rightView(resultMatrix, tileNumber * tile_size + subRow, col);
+      if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
+        tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
+      else 
+        tileStorage(thread.team_rank())  = 0.0;
+
+      if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis)
+        tileStorage(thread.team_rank() + (tile_size * tile_size)) =
+                 rightView(resultMatrix, tileNumber * tile_size + subRow, col);
+      else
+        tileStorage(thread.team_rank() + (tile_size * tile_size)) = 0.0;
+
       // make sure everyone's finished loading their pieces of the tiles
       thread.team_barrier();
       for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
@@ -1724,7 +1731,9 @@ struct CFFS_Tiling_TeamFunctor_1D {
       }
       thread.team_barrier();
     }
-    outputView(resultMatrix, row, col) = sum;
+    if (resultMatrix < numCells && row < numBasis && col < numBasis)
+      outputView(resultMatrix, row, col) = sum;
+
     resultTileIndex += thread.league_size();
   }
 }
@@ -1812,7 +1821,6 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
 
 
   /*
-
   // copy the data into the device views and ship them over
   for (unsigned int contractionIndex = 0;
   contractionIndex < numberOfContractions; ++contractionIndex) {
@@ -1855,8 +1863,12 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
           dev_kokkosContractionResults,
           tile_size);
 
+
+  const unsigned int numBlocks = numberOfContractions *
+    (((numLeftFields - 1)/tile_size) + 1) * (((numRightFields -1)/tile_size) + 1);
+
   const team_policy tiling_policy(
-      numberOfContractions * numLeftFields * numRightFields / (tile_size*tile_size),
+      numBlocks,
       tile_size*tile_size );
 
 
@@ -1917,6 +1929,7 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
 
   return totalElapsedTime;
 }
+
 
 
 void contractFieldFieldScalarSerial(vector<float> & outputFields, // c, l, r
@@ -2143,11 +2156,11 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16,*/ 32, 64, 128, 512, 1024/*, 2048*/}};
+    {{/*8, 16, 32,*/ 8, /*128, 512, 1024/*, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
-  const unsigned int tile_size = 16;
+  const unsigned int tile_size = 8;
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
@@ -2283,7 +2296,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 16;
+    const int numBasis = 8;
 
     const timespec thisSizesTic = getTimePoint();
 
@@ -2568,6 +2581,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
+      /*
       {
         const unsigned int numberOfThreadsPerBlock = numBasis;
 
@@ -2620,6 +2634,7 @@ int main(int argc, char* argv[]) {
                       tile_size);
 
       }
+      */
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
@@ -2753,6 +2768,7 @@ int main(int argc, char* argv[]) {
 
       
       }
+      /*
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2777,6 +2793,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults);
       }
+      
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2793,6 +2810,7 @@ int main(int argc, char* argv[]) {
               memorySize,
               contractionData_LayoutRight_Right,
               contractionData_LayoutRight_Left,
+	      
               correctResults,
               string("Kokkos Tiling"),
               clearCacheStyle,
@@ -2801,14 +2819,14 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults,
               tile_size);
-      }
+      }*/
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                 DeviceType>                   KokkosContractionData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
-        kokkosTilingTimesMatrix1D[contractionSizeIndex][memorySizeIndex] =
+        kokkosTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runKokkosTilingTest_1D<DeviceType,
           KokkosContractionData>(numberOfContractions,
               numberOfRepeats,
