@@ -88,6 +88,10 @@ ContractFieldFieldTensor: ContractFieldFieldTensor.cu
 	#$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O0,-g
 
 
+CFFT: CFFT.cpp
+	$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O3
+	#$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O0,-g
+
 
 clean:
 	rm -f *.o $(TARGETS)

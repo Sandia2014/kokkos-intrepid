@@ -307,6 +307,7 @@ runCudaTest(const CudaStyle cudaStyle,
             iTens1*tOff + iTens2] =
             tensorData_Left[cl*cLOff + lbf*basisOff + qp*pLOff +
             iTens1*tOff + iTens2];
+          }
         }
       }
     }
@@ -438,6 +439,7 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
                      unsigned int * const totalNumberOfRepeats,
                      float * const dev_tensorResults,
                      vector<float> * const tensorResults) {
+
   // if i can't saturate occupancy, do the reduction version
   // i got this number by just looking at where the plots crossed, where
   //  the reduction style actually starts beating the independent.
@@ -1280,7 +1282,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
+/*
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
 
@@ -1310,7 +1312,7 @@ int main(int argc, char* argv[]) {
                       &tensorResults);
 
       }
-
+*/
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
@@ -1521,7 +1523,7 @@ int main(int argc, char* argv[]) {
               expectedDataCounter, float(expectedDataCounter));
       exit(1);
     }
-    */
+    
   }
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
     (numberOfRepeats + 1) * numberOfMemorySizes * numberOfTensorSizes;
@@ -1536,7 +1538,7 @@ int main(int argc, char* argv[]) {
 #endif
     exit(1);
   }
-
+	*/
 #ifdef ENABLE_KOKKOS
   Kokkos::finalize();
 #endif
