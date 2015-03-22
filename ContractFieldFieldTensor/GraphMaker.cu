@@ -109,8 +109,6 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
                                  const unsigned int numPoints,
                                  const unsigned int tens1,
                                  const unsigned int tens2,
-                                 const unsigned int maxNumberOfTensors,
-                                 const unsigned int tensorSize,
                                  const float * const __restrict__ dev_tensorData_Left,
                                  const float * const __restrict__ dev_tensorData_Right,
                                  float * dev_tensorResults) {
@@ -352,8 +350,6 @@ runCudaTest(const CudaStyle cudaStyle,
                                    numPoints,
                                    tens1,
                                    tens2,
-                                   maxNumberOfTensors,
-                                   tensorSize,
                                    dev_contractionData_Left,
                                    dev_contractionData_Right,
                                    dev_tensorResults);
@@ -627,10 +623,10 @@ double
 runKokkosTest(const unsigned int numCells,
               const unsigned int numberOfRepeats,
               const unsigned int numLeftFields,
-	          const unsigned int numRightFields,
-	      const int numPoints,
-	      const int tens1,
-	      const int tens2,
+	            const unsigned int numRightFields,
+	            const int numPoints,
+	            const int tens1,
+	            const int tens2,
               const unsigned int memorySize,
               const vector<float> & tensorData_LayoutRight_A,
               const vector<float> & tensorData_LayoutRight_B,
@@ -711,23 +707,23 @@ runKokkosTest(const unsigned int numCells,
     }
   } */
   for (int cl = 0; cl < numCells; ++cl) {
-	for (int qp = 0; qp < p; ++qp) {
-	    for (int iTens1 = 0; iTens1 < t1; ++iTens1) {
-		for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
-		    for(int rbf = 0; rbf < numRightFields; ++rbf) {
-			kokkosData_Right(cl, qp, iTens1, iTens2, rbf) =
-			    tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff +
-			    iTens1*tROff + iTens2*t2ROff];
-		    }
-		    for(int lbf = 0; lbf < numLeftFields; ++lbf) {
-			kokkosData_Left(cl, lbf, qp, iTens1, iTens2) =
-			    tensorData_LayoutRight_B[cl*cLOff + lbf*basisOff + qp*pLOff +
-			    iTens1*tOff + iTens2];
-		    }
-		}
-	    }
-	}
-    }
+	   for (int qp = 0; qp < p; ++qp) {
+	      for (int iTens1 = 0; iTens1 < t1; ++iTens1) {
+		        for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
+		            for(int rbf = 0; rbf < numRightFields; ++rbf) {
+			               kokkosData_Right(cl, qp, iTens1, iTens2, rbf) =
+			                  tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff +
+			                  iTens1*tROff + iTens2*t2ROff];
+		                    }
+		            for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+			               kokkosData_Left(cl, lbf, qp, iTens1, iTens2) =
+			                  tensorData_LayoutRight_B[cl*cLOff + lbf*basisOff + qp*pLOff +
+			                  iTens1*tOff + iTens2];
+		            }
+		        }
+	      }
+	   }
+  }
 
 
   Kokkos::deep_copy(dev_kokkosData_Right, kokkosData_Right);
@@ -1282,9 +1278,9 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-/*
+
       {
-        const unsigned int numberOfThreadsPerBlock = 1024;
+        const unsigned int numberOfThreadsPerBlock = 256;
 
         cudaIndependent_TimesMatrix[tensorSizeIndex][memorySizeIndex] =
           runCudaTest(CudaStyle_Independent,
@@ -1312,7 +1308,7 @@ int main(int argc, char* argv[]) {
                       &tensorResults);
 
       }
-*/
+
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
@@ -1523,7 +1519,7 @@ int main(int argc, char* argv[]) {
               expectedDataCounter, float(expectedDataCounter));
       exit(1);
     }
-    
+
   }
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
     (numberOfRepeats + 1) * numberOfMemorySizes * numberOfTensorSizes;
