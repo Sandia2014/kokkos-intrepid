@@ -133,8 +133,8 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
     for (int qp = 0; qp < numPoints; qp++) {
       for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
         for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
-          sum += leftFields[myCell*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
-          rightFields[myCell*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
+          sum += dev_tensorData_Left[myCell*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
+          dev_tensorData_Right[myCell*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
         }
       }
     }
@@ -450,7 +450,8 @@ runCudaTest(const CudaStyle cudaStyle,
   checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults->at(0),
                             numberOfTensors * numLeftFields*numRightFields*sizeof(float),
                             cudaMemcpyHostToDevice));
-
+  checkCudaError(cudaFree(dev_contractionData_Right));
+  checkCudaError(cudaFree(dev_contractionData_Left));
   return totalElapsedTime;
 }
 
