@@ -121,6 +121,25 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
     int lbf = matrixIndex / numRightFields;
     int rbf = matrixIndex % numRightFields;
 
+    int clOff = numLeftFields*numPoints*tens1*tens2;
+    int crOff = numRightFields*numPoints*tens1*tens2;
+    int cOut = numLeftFields*numRightFields;
+    int lOff = numPoints*tens1*tens2;
+    int lOut = numRightFields;
+    int rOff = numPoints*tens1*tens2;
+    int pOff = tens1*tens2;
+    int tenOff = tens2;
+
+    for (int qp = 0; qp < numPoints; qp++) {
+      for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
+        for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
+          sum += leftFields[myCell*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
+          rightFields[myCell*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
+        }
+      }
+    }
+    /*
+
     for (int qp = 0; qp < numPoints; qp++) {
       for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
         for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
@@ -131,7 +150,9 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
         }
       }
     }
-    dev_tensorResults[myID*numLeftFields*numRightFields + lbf*numRightFields + rbf] = sum;
+    */
+    dev_tensorResults[myCell*cOut+lbf*lOut+rbf] = sum;
+    //dev_tensorResults[myID*numLeftFields*numRightFields + lbf*numRightFields + rbf] = sum;
     myID += blockDim.x * gridDim.x;
   }
 }
@@ -295,6 +316,27 @@ runCudaTest(const CudaStyle cudaStyle,
       for (int iTens1 = 0; iTens1 < tens1; ++iTens1) {
         for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
           for(int rbf = 0; rbf < numRightFields; ++rbf) {
+            contractionData_GPURight[cl*cROff + rbf*basisOff + qp*pROff +
+            iTens1*tROff + iTens2*t2ROff] =
+            tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
+            iTens1*tROff + iTens2*t2ROff];
+          }
+          for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+            contractionData_GPULeft[cl*cLOff + lbf*basisOff + qp*pLOff +
+            iTens1*tOff + iTens2] =
+            tensorData_Left[cl*cLOff + lbf*basisOff + qp*pLOff +
+            iTens1*tOff + iTens2];
+          }
+        }
+      }
+    }
+  }
+  /*
+  for (int cl = 0; cl < numberOfTensors; ++cl) {
+    for (int qp = 0; qp < numPoints; ++qp) {
+      for (int iTens1 = 0; iTens1 < tens1; ++iTens1) {
+        for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
+          for(int rbf = 0; rbf < numRightFields; ++rbf) {
             contractionData_GPURight[cl*numPoints*numRightFields*tens1*tens2 + qp*numRightFields*tens1*tens2+
             iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf] =
             tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
@@ -310,6 +352,7 @@ runCudaTest(const CudaStyle cudaStyle,
       }
     }
   }
+  */
 
   // Then copy it over
   float * dev_contractionData_Right;
