@@ -134,7 +134,9 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
       for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
         for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
           sum += dev_tensorData_Left[myCell*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
-          dev_tensorData_Right[myCell*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
+          dev_tensorData_Right[myCell*crOff+qp*numRightFields*tens1*tens2+
+                              iTens1*numRightFields*tens2+iTens2*numRightFields
+                              +rbf];
         }
       }
     }
@@ -316,8 +318,8 @@ runCudaTest(const CudaStyle cudaStyle,
       for (int iTens1 = 0; iTens1 < tens1; ++iTens1) {
         for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
           for(int rbf = 0; rbf < numRightFields; ++rbf) {
-            contractionData_GPURight[cl*cROff + rbf*basisOff + qp*pROff +
-            iTens1*tROff + iTens2*t2ROff] =
+            contractionData_GPURight[cl*cROff + qp*numRightFields*pROff + iTens1*numRightFields*tROff +
+            iTens2*numRightFields + rbf] =
             tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
             iTens1*tROff + iTens2*t2ROff];
           }
