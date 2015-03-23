@@ -1519,8 +1519,9 @@ int main(int argc, char* argv[]) {
               expectedDataCounter, float(expectedDataCounter));
       exit(1);
     }
-
+	*/
   }
+  /*
   const unsigned int expectedTotalNumberOfRepeats = numberOfMethods *
     (numberOfRepeats + 1) * numberOfMemorySizes * numberOfTensorSizes;
   if (totalNumberOfRepeats != expectedTotalNumberOfRepeats) {
