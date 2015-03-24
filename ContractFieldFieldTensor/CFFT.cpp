@@ -26,9 +26,8 @@ using std::array;
 // header file for openmp
 #include <omp.h>
 
-#ifdef ENABLE_KOKKOS
-#include <Kokkos_Core.hpp>
-#endif // ENABLE_KOKKOS
+#include "CFFT_TeamReduction.hpp"
+//#include <Kokkos_Core.hpp>
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction};
@@ -503,7 +502,6 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 
 
 
-#ifdef ENABLE_KOKKOS
 
 template <class DeviceType, class KokkosJunkVector>
 struct KokkosFunctor_ClearCache {
@@ -823,9 +821,229 @@ runKokkosTest(const unsigned int numCells,
   return totalElapsedTime;
 }
 
-#endif // ENABLE_KOKKOS
+
+template <class DeviceType, class InputViewType>
+double
+runKokkosReductionTest(const unsigned int numCells,
+              const unsigned int numberOfRepeats,
+              const unsigned int numLeftFields,
+	          const unsigned int numRightFields,
+	      const int numPoints,
+	      const int tens1,
+	      const int tens2,
+              const unsigned int memorySize,
+              const vector<float> & tensorData_LayoutRight_A,
+              const vector<float> & tensorData_LayoutRight_B,
+              const vector<float> & correctResults,
+              const string & kokkosFlavor,
+              const ClearCacheStyle clearCacheStyle,
+              const vector<int> & junkDataToClearTheCache,
+              size_t * junkDataCounter,
+              unsigned int * const totalNumberOfRepeats,
+              vector<float> * results) {
+
+  const unsigned int junkDataSize = junkDataToClearTheCache.size();
+
+  typedef typename InputViewType::HostMirror     Kokkos_input_Host;
+  typedef Kokkos::View<float***, Kokkos::LayoutRight, DeviceType>              KokkosResults;
+  typedef typename KokkosResults::HostMirror  KokkosResults_Host;
+  typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
+  typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
 
+    int p=numPoints, t1=tens1, t2=tens2;
+
+    // These are indices into the arrays and should not be
+    // changed unless you change the order of the indices
+    // as well
+    int cLOff = numLeftFields*p*t1*t2;
+    int cROff = numRightFields*p*t1*t2;
+    int basisOff = p*t1*t2;
+    int pLOff = t1*t2;
+    int pROff = t1*t2;
+    int tROff = t2;
+    int tOff = t2;
+
+  InputViewType dev_kokkosData_Right("kokkos data A",
+                                                  numCells,
+												  numRightFields,
+						  p,
+						  t1,
+						  t2);
+
+  Kokkos_input_Host kokkosData_Right =
+    Kokkos::create_mirror_view(dev_kokkosData_Right);
+
+  InputViewType dev_kokkosData_Left("kokkos data B",
+                                                 numCells,
+						 numLeftFields,
+                                                 p,
+						 t1,
+						 t2);
+
+  Kokkos_input_Host kokkosData_Left =
+    Kokkos::create_mirror_view(dev_kokkosData_Left);
+
+  KokkosResults dev_kokkosResults("kokkos dot product results",
+                                                      numCells,
+						      numLeftFields,
+						      numRightFields);
+  KokkosResults_Host kokkosResults =
+    Kokkos::create_mirror_view(dev_kokkosResults);
+
+  KokkosJunkVector dev_kokkosJunkDataToClearTheCache("kokkos junk data to clear cache",
+                                                     junkDataSize);
+  KokkosJunkVector_Host kokkosJunkDataToClearTheCache =
+    Kokkos::create_mirror_view(dev_kokkosJunkDataToClearTheCache);
+
+  // copy the data into the device views and ship them over
+  /* for (unsigned int tensorIndex = 0;
+       tensorIndex < numberOfTensors; ++tensorIndex) {
+    for (unsigned int entryIndex = 0;
+         entryIndex < tensorSize; ++entryIndex) {
+      kokkosTensorData_A(tensorIndex, entryIndex) =
+        tensorData_LayoutRight_A[tensorIndex * tensorSize +
+                                     entryIndex];
+      kokkosTensorData_B(tensorIndex, entryIndex) =
+        tensorData_LayoutRight_B[tensorIndex * tensorSize +
+                                     entryIndex];
+    }
+  } */
+  for (int cl = 0; cl < numCells; ++cl) {
+	  for (int qp = 0; qp < p; ++qp) {
+		  for (int iTens1 = 0; iTens1 < t1; ++iTens1) {
+			  for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
+				  for(int rbf = 0; rbf < numRightFields; ++rbf) {
+					  kokkosData_Right(cl, rbf, qp, iTens1, iTens2) =
+						  tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff +
+						  iTens1*tROff + iTens2];
+				  }
+				  for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+					  kokkosData_Left(cl, lbf, qp, iTens1, iTens2) =
+						  tensorData_LayoutRight_B[cl*cLOff + lbf*basisOff + qp*pLOff +
+						  iTens1*tOff + iTens2];
+				  }
+			  }
+		  }
+	  }
+  }
+
+
+  Kokkos::deep_copy(dev_kokkosData_Right, kokkosData_Right);
+  Kokkos::deep_copy(dev_kokkosData_Left, kokkosData_Left);
+
+  // copy the data into the device views and ship them over
+  for (unsigned int junkDataIndex = 0;
+       junkDataIndex < junkDataSize; ++junkDataIndex) {
+    kokkosJunkDataToClearTheCache(junkDataIndex) =
+      junkDataToClearTheCache[junkDataIndex];
+  }
+  Kokkos::deep_copy(dev_kokkosJunkDataToClearTheCache, kokkosJunkDataToClearTheCache);
+
+  KokkosFunctor_ClearCache<DeviceType,
+                           KokkosJunkVector>
+    kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
+
+/*
+  // breaking formatting convention because holy freak that's long
+  contractFieldFieldTensorFunctor<DeviceType,
+                            InputViewType,
+			    InputViewType,
+                            KokkosResults>
+    tensorFunctor(dev_kokkosData_Left,
+                              dev_kokkosData_Right,
+                              dev_kokkosResults,
+			      numCells,
+			      numLeftFields,
+			      numRightFields,
+			      p,
+			      t1,
+			      t2); */
+
+	CFFT_Fred_Reduction_TeamFunctor<InputViewType,
+									InputViewType,
+									KokkosResults>		
+		tensorFunctor(numCells,
+					  numLeftFields,
+					  numRightFields,
+					  numPoints,
+					  t1,
+					  t2,
+					  dev_kokkosData_Left,
+					  dev_kokkosData_Right,
+					  dev_kokkosResults);
+	
+	int numTeams = numCells*numLeftFields*numRightFields;
+	int team_size = numPoints*t1*t2;
+
+	const team_policy reduction_policy(numTeams, team_size);
+
+
+  timespec tic;
+  double totalElapsedTime = 0;
+  for (unsigned int repeatIndex = 0;
+       repeatIndex < numberOfRepeats+1; ++repeatIndex) {
+    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+         repeatIndex == 1) ||
+        clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      tic = getTimePoint();
+    }
+
+    // actually do the calculation
+	Kokkos::parallel_for(reduction_policy, tensorFunctor);
+
+    //Kokkos::parallel_for(numCells*numRightFields*numLeftFields, tensorFunctor);
+
+    // wait for this repeat's results to finish
+    Kokkos::fence();
+    if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      const float elapsedTime = getElapsedTime(tic, toc);
+      totalElapsedTime += elapsedTime;
+
+      // attempt to scrub all levels of cache
+      size_t partialJunkDataCounter = 0;
+      Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+                              partialJunkDataCounter);
+      *junkDataCounter += partialJunkDataCounter;
+    }
+  }
+  if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+    const timespec toc = getTimePoint();
+    totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+  }
+
+  // copy over the results from the device to the host
+  Kokkos::deep_copy(kokkosResults, dev_kokkosResults);
+  /*
+  for (unsigned int tensorIndex = 0;
+       tensorIndex < numCells; ++tensorIndex) {
+    results->at(tensorIndex) =
+      kokkosResults(tensorIndex);
+  }
+  */
+
+  for (int i = 0; i < numCells; i++) {
+    for (int j = 0; j < numLeftFields; j++) {
+	for (int k = 0; k < numRightFields; k++) {
+	    results->at(i*numLeftFields*numRightFields + j*numRightFields + k) =
+	    kokkosResults(i, j, k);
+	}
+    }
+  }
+  // check the results
+  checkAnswer(correctResults, *results,
+              numCells*numLeftFields*numRightFields, memorySize,
+              kokkosFlavor);
+
+
+  // scrub the results
+  std::fill(results->begin(),
+            results->end(),
+            std::numeric_limits<float>::quiet_NaN());
+  return totalElapsedTime;
+}
 
 void contractFieldFieldTensorSerial(vector<float> & outputFields,
                                     vector<float> &  leftFields,
@@ -906,9 +1124,7 @@ void contractFieldFieldTensorSerial(vector<float> & outputFields,
 
 int main(int argc, char* argv[]) {
 
-#ifdef ENABLE_KOKKOS
   Kokkos::initialize(argc, argv);
-#endif
 
   // ===============================================================
   // ********************** < input> ******************************
@@ -916,12 +1132,12 @@ int main(int argc, char* argv[]) {
   const vector<unsigned int> tensorSizes =
     {{160, 320, 1600, 6400, 16000}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
-  const unsigned int numberOfMemorySizes = 10;
+  const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 5 : 250;
+    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 2 : 250;
   const string machineName = "shadowfax";
   const string prefix = "data/ContractFieldFieldTensor_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -989,14 +1205,16 @@ int main(int argc, char* argv[]) {
     cudaSwitchingTimesMatrix(numberOfTensorSizes,
                              vector<float>(numberOfMemorySizes, 0));
 
-#ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfTensorSizes,
                          vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
     kokkosCudaIndependentTimesMatrix(numberOfTensorSizes,
                                      vector<float>(numberOfMemorySizes, 0));
-#endif
+  vector<vector<float> >
+    kokkosCudaReductionTimesMatrix(numberOfTensorSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
+
 
 
   // create some junk data to use in clearing the cache
@@ -1174,7 +1392,7 @@ int main(int argc, char* argv[]) {
       std::fill(tensorResults.begin(),
                 tensorResults.end(),
                 std::numeric_limits<float>::quiet_NaN());
-
+#if 0
       // ===============================================================
       // ********************** < do omp> ******************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1277,7 +1495,6 @@ int main(int argc, char* argv[]) {
                                 maxNumberOfTensors * sizeof(float),
                                 cudaMemcpyHostToDevice));
     */
-
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1315,7 +1532,6 @@ int main(int argc, char* argv[]) {
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
-      #if 0
       // ===============================================================
       // ***************** < do cuda reductions> ***********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1374,7 +1590,6 @@ int main(int argc, char* argv[]) {
       // ===============================================================
 #endif
 
-#ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1429,10 +1644,35 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &tensorResults);
       }
+	  {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosCudaReductionTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+          runKokkosReductionTest<DeviceType,
+                        KokkosData>(numberOfTensors,
+                                              numberOfRepeats,
+                                              numLeftFields,
+					      numRightFields,
+					      numPoints,
+					      tens1,
+					      tens2,
+                                              memorySize,
+                                              tensorData_LayoutRight_A,
+                                              tensorData_LayoutRight_B,
+                                              correctResults,
+                                              string("Kokkos cuda reduction"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &tensorResults);
+      }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
-#endif // ENABLE_KOKKOS
 
       tensorSizeMatrix[tensorSizeIndex][memorySizeIndex] =
         tensorSize;
@@ -1466,6 +1706,7 @@ int main(int argc, char* argv[]) {
                          prefix + string("memorySize") + suffix);
   writeTimesMatrixToFile(serialTimesMatrix,
                          prefix + string("serialTimes") + suffix);
+#if 0
   writeTimesMatrixToFile(ompTimesMatrix,
                          prefix + string("ompTimes") + suffix);
   writeTimesMatrixToFile(cudaIndependent_TimesMatrix,
@@ -1474,18 +1715,16 @@ int main(int argc, char* argv[]) {
                          prefix + string("cudaReductionTimes") + suffix);
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
-#ifdef ENABLE_KOKKOS
+						 #endif
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
                          prefix + string("kokkosOmpTimes") + suffix);
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
-#endif
+  writeTimesMatrixToFile(kokkosCudaReductionTimesMatrix,
+                         prefix + string("kokkosCudaReductionTimes") + suffix);
 
-#ifdef ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 7;
-#else
+  //const unsigned int numberOfMethods = 7;
   const unsigned int numberOfMethods = 5;
-#endif
 
   printf("done writing\n");
 
@@ -1532,15 +1771,11 @@ int main(int argc, char* argv[]) {
             totalNumberOfRepeats, float(totalNumberOfRepeats),
             expectedTotalNumberOfRepeats, float(expectedTotalNumberOfRepeats));
 
-#ifdef ENABLE_KOKKOS
   Kokkos::finalize();
-#endif
     exit(1);
   }
 
-#ifdef ENABLE_KOKKOS
   Kokkos::finalize();
-#endif
 
   return 0;
 }

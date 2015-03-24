@@ -1,5 +1,12 @@
 // Creation of FRED team Reduciton for CFFT
 
+#include <Kokkos_Core.hpp>
+
+typedef Kokkos::DefaultExecutionSpace Device;
+typedef Kokkos::HostSpace::execution_space Host;
+typedef Kokkos::TeamPolicy<Device> team_policy;
+typedef team_policy::member_type team_member;
+
 template<class LeftInputViewType, class RightInputViewType, class OutputViewType>
 struct CFFT_Fred_Reduction_TeamFunctor {
 	/* This function does a team reduction by making a team for every output
@@ -37,14 +44,15 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 									_numRightFields(numRightFields),
 									_numPoints(numPoints),
 									_dim1Tens(dim1Tens),
-									_dim2Tens(dim2tens),
+									_dim2Tens(dim2Tens),
 									_leftView(leftView),
 									_rightView(rightView),
 									_outputView(outputView) {
 		// Nothing to do
 	}
 
-	KOKKOS_INLINE_FUNCTION void operator() (const team_member& thread) const {
+	KOKKOS_INLINE_FUNCTION 
+	void operator() (const team_member& thread) const {
 		float sum = 0;
 		float threadSum = 0;
 		// Getting information about thread and saving it in a variable
@@ -57,6 +65,7 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 		const unsigned int matrixIndex = teamID % 
 											(_numLeftFields * _numRightFields);
 		const unsigned int matrixRow = matrixIndex / _numRightFields;
+		const unsigned int matrixCol = matrixIndex % _numRightFields;
 		
 		const unsigned int reductionSize = _numPoints * _dim1Tens * _dim2Tens;
 		
@@ -65,8 +74,8 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 			const unsigned int dim1 = (index % (_dim1Tens * _dim2Tens)) / _dim2Tens;
 			const unsigned int dim2 = index % _dim2Tens;
 
-			threadSum += _leftInput(myMatrix, matrixRow, qp, dim1, dim2) *
-						 _rightInput(myMatrix,matrixCol, qp, dim1, dim2);
+			threadSum += _leftView(myMatrix, matrixRow, qp, dim1, dim2) *
+						 _rightView(myMatrix, matrixCol, qp, dim1, dim2);
 		}
 
 		Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, teamSize),
