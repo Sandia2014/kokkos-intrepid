@@ -28,7 +28,7 @@ cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix +
 cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-
+cudaSlicingTimes = numpy.loadtxt(open(prefix + 'cudaSlicingTimes' + suffix + '.csv', 'rb'), delimiter = ',', skiprows=0)
 # set up a list of the times and names, for easy iteration later
 # TODO: make this consistent with the files that you read in and/or care about
 allTimes = []
@@ -51,7 +51,8 @@ allTimes.append(kokkosOmpTimes)
 allNames.append('kokkosOmp')
 allTimes.append(kokkosCudaIndependentTimes)
 allNames.append('kokkosCudaIndependent')
-
+allTimes.append(cudaSlicingTimes)
+allNames.append('cudaSlicingTimes')
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
 #makeImageFiles = False
@@ -73,7 +74,7 @@ ax2d = plt.subplot(111)
 box2d = ax2d.get_position()
 ax2d.set_position([box2d.x0, box2d.y0, box2d.width * 0.60, box2d.height])
 bbox_to_anchor2d = (1.87, 0.5)
-
+"""
 # make an image of just the number of dot products
 # TODO: you might want to make an image of the number of cells, so you'd adjust this.
 fig3d = plt.figure(0)
@@ -91,7 +92,7 @@ if (makeImageFiles == True):
   print 'saved file to %s' % filename
 else:
   plt.show()
-
+"""
 # goal: make images showing just the raw times
 # find the min and max values across all flavors so that the color scale is the same for each graph
 maxValue = -10
@@ -124,6 +125,7 @@ for timesIndex in range(len(allTimes)):
     print 'saved file to %s' % filename
   else:
     plt.show()
+    """
 # make a 2D plot of all flavors, for the smallest and largest sizes of memory
 fig2d = plt.figure(1)
 for memorySizeIndex in [-1, 0]:
@@ -185,7 +187,7 @@ for timesIndex in range(len(allTimes)):
         print 'saved file to %s' % filename
   else:
     plt.show()
-
+"""
 
 # now make relative speedups over serial
 maxSpeedup = -10
@@ -248,7 +250,7 @@ for memorySizeIndex in [-1, 0]:
     plt.show()
 
 sys.exit(1)
-
+"""
 # now make relative speedup over openmp
 # TODO: you might disable this part
 maxSpeedup = -10

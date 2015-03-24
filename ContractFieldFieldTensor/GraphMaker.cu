@@ -238,7 +238,7 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfTensors,
 
   const unsigned int col = threadIdx.x;
 
-  const unsigned int currentBlock = blockIdx.x;
+  unsigned int currentBlock = blockIdx.x;
   const unsigned int numBlocks = numRightFields*numberOfTensors;
   const unsigned int contractionSize = numPoints * tens1 * tens2;
 
@@ -248,7 +248,7 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfTensors,
     const unsigned int row = currentBlock - cell * numLeftFields;
 
     for (unsigned int p = col; p < contractionSize; p += blockDim.x) {
-      sliceStorage[p] = dev_contractionData_Left[cell*numBasis*contractionSize +
+      sliceStorage[p] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
         row*contractionSize + p];
     }
     //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
@@ -256,11 +256,11 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfTensors,
 
     float sum = 0;
     for (int p = 0; p < contractionSize; ++p) {
-      sum += sliceStorage[p] * dev_contractionData_Right[cell*numBasis*contractionSize +
-        p*numBasis + col];
+      sum += sliceStorage[p] * dev_tensorData_Right[cell*numRightFields*contractionSize +
+        p*numRightFields + col];
     }
 
-    dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = sum;
+    dev_tensorResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = sum;
 
     currentBlock += gridDim.x;
   }
@@ -1159,7 +1159,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{160, 320, 1600, 6400, 16000}};
+    {{1944}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1285,8 +1285,8 @@ int main(int argc, char* argv[]) {
 
     // these must be the same size or else the allocation for vectors won't
     // work
-    const int numLeftFields = 10;
-    const int numRightFields = 10;
+    const int numLeftFields = 125;
+    const int numRightFields = 125;
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
     const unsigned int maxNumberOfTensors =
@@ -1378,8 +1378,8 @@ int main(int argc, char* argv[]) {
       }
       */
 
-      const int tens1 = 4;
-      const int tens2 = 4;
+      const int tens1 = 3;
+      const int tens2 = 3;
       const int numPoints = tensorSize/(tens1*tens2);
 
       // ===============================================================
@@ -1561,9 +1561,9 @@ int main(int argc, char* argv[]) {
 
       }
       {
-      const unsigned int numberOfThreadsPerBlock = tensorSize;
+      const unsigned int numberOfThreadsPerBlock = numRightFields;
 
-      cudaSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+      cudaSlicingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
         runCudaTeamTest(CudaStyle_Slicing,
             numberOfThreadsPerBlock,
             numberOfRepeats,
