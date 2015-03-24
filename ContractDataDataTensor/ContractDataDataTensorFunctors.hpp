@@ -288,6 +288,7 @@ struct ContractDataDataTensorTeamStrideFunctor {
         localsum += sum;
       }, tsum);
 
+    thread.team_barrier();
     // FIXME everyone is writing this?
     _output(cell) = tsum;
   }
