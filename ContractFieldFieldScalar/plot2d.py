@@ -116,8 +116,8 @@ plt.xlabel('Number of Contractions', fontsize=16)
 plt.ylabel('Time [seconds] (Log10 scale)', fontsize=16)
 plt.xlim(numberOfCells[0], numberOfCells[-1])
 
-_labels = ["Serial", "Kokkos Cuda Flat Parallel", "Kokkos Cuda Tiling"]
-ax2d.legend(_labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
+localLabels = ["Serial", "Kokkos Cuda Flat Parallel", "Kokkos Cuda Tiling"]
+ax2d.legend(localLabels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
 
 filename = outputPrefix + "LimitedFixedSize_RawTimes_2d_UseCase" + str(3) + suffix
 plt.savefig(filename + ".pdf")
