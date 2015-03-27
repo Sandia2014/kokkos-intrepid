@@ -91,7 +91,7 @@ for useCase in xrange(len(numberOfCells)):
     plt.xlim(numberOfCells[useCase][0], numberOfCells[useCase][-1])
 
     _labels = ["Serial", "Kokkos Cuda Flat Parallel", "Kokkos Cuda Team Reduce"]
-    ax2d.legend(_labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
+    ax2d.legend(_labels, loc=4)
 
     filename = outputPrefix + "LimitedFixedSize_RawTimes_2d_UseCase" + str(useCase + 1) + suffix
     plt.savefig(filename + ".pdf")
