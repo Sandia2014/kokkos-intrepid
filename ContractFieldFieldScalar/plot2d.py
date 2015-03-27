@@ -100,3 +100,28 @@ for timesArray in allTimes:
 
 print "saved file %s" % filename
 '''
+
+
+# logplot, limited usecase 3
+plt.cla()
+plt.plot(numberOfCells, serialTimes,
+             numberOfCells, kokkosCudaIndependentTimes,
+             numberOfCells, kokkosCudaTiling)
+
+
+plt.xscale('log')
+plt.yscale('log')
+plt.title('Raw Times Use Case #%d' % 3, fontsize=16)
+plt.xlabel('Number of Contractions', fontsize=16)
+plt.ylabel('Time [seconds] (Log10 scale)', fontsize=16)
+plt.xlim(numberOfCells[0], numberOfCells[-1])
+
+_labels = ["Serial", "Kokkos Cuda Flat Parallel", "Kokkos Cuda Tiling"]
+ax2d.legend(_labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
+
+filename = outputPrefix + "LimitedFixedSize_RawTimes_2d_UseCase" + str(3) + suffix
+plt.savefig(filename + ".pdf")
+
+print "saved file %s" % filename
+
+
