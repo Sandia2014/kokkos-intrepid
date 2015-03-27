@@ -75,6 +75,28 @@ for useCase in xrange(len(numberOfCells)):
 
     print "saved file %s" % filename
 
+#limited log plots
+for useCase in xrange(len(numberOfCells)):
+    plt.cla()
+    plt.plot(numberOfCells[useCase], serialTimes[useCase],
+             numberOfCells[useCase], kokkosCudaIndependentTimes[useCase],
+             numberOfCells[useCase], kokkosCudaTeamDepth2Times[useCase])
+
+
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.title('Raw Times, Use Case #%d' % (useCase + 1), fontsize=16)
+    plt.xlabel('Number of Contractions', fontsize=16)
+    plt.ylabel('Time [seconds] (Log10 scale)', fontsize=16)
+    plt.xlim(numberOfCells[useCase][0], numberOfCells[useCase][-1])
+
+    _labels = ["Serial", "Kokkos Cuda Flat Parallel", "Kokkos Cuda Team Reduce"]
+    ax2d.legend(_labels, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
+
+    filename = outputPrefix + "LimitedFixedSize_RawTimes_2d_UseCase" + str(useCase + 1) + suffix
+    plt.savefig(filename + ".pdf")
+
+    print "saved file %s" % filename
 
 #linear plots
 for useCase in xrange(len(numberOfCells)):
