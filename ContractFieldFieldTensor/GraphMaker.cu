@@ -1166,7 +1166,7 @@ int main(int argc, char* argv[]) {
   const ClearCacheStyle clearCacheStyle =
     ClearCacheAfterEveryRepeat;
   const unsigned int numberOfRepeats =
-    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 5 : 250;
+    (clearCacheStyle == ClearCacheAfterEveryRepeat) ? 1 : 250;
   const string machineName = "shadowfax";
   const string prefix = "data/ContractFieldFieldTensor_";
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
