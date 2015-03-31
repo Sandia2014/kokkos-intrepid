@@ -32,7 +32,8 @@ using std::array;
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
-                CudaStyle_Slicing};
+                CudaStyle_Slicing,
+                CudaStyle_AdaptiveSlicing};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
@@ -46,6 +47,8 @@ convertCudaStyleToString(const CudaStyle cudaStyle) {
     return string("CudaStyle_Reduction");
   case CudaStyle_Slicing:
     return string("CudaStyle_Slicing");
+  case CudaStyle_AdaptiveSlicing:
+    return string("CudaStyle_AdaptiveSlicing")
   default:
     fprintf(stderr, "invalid cuda style\n");
     exit(1);
@@ -262,6 +265,52 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfTensors,
 
     dev_tensorResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = sum;
 
+    currentBlock += gridDim.x;
+  }
+}
+
+__global__
+void
+doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
+                                 const unsigned int numLeftFields,
+                                 const unsigned int numRightFields,
+                                 const unsigned int numPoints,
+                                 const unsigned int tens1,
+                                 const unsigned int tens2,
+                                 const float * const __restrict__ dev_tensorData_Left,
+                                 const float * const __restrict__ dev_tensorData_Right,
+                                 float * dev_tensorResults) {
+
+  extern __shared__ float sliceStorage[];
+
+  const unsigned int threadRow = threadIdx.x / contractionSize;
+  const unsigned int col = threadIdx.x - (threadRow * contractionSize);
+
+  unsigned int currentBlock = blockIdx.x;
+  const unsigned int blockSize = blockDim.x;
+  const unsigned int numBlocks = ceil(numRightFields*numberOfTensors/2);
+  const unsigned int contractionSize = numPoints * tens1 * tens2;
+
+  while (currentBlock < numBlocks) {
+    syncthreads();
+    const unsigned int cell = (currentBlock*2) / numLeftFields;
+    const unsigned int row = (currentBlock*2) - cell * numLeftFields;
+
+    if((cell < numberOfTensors) && (row < numLeftFields)) {
+      for (unsigned int p = col; p < contractionSize; p += blockDim.x) {
+        sliceStorage[p] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
+          row*contractionSize + p];
+        }
+      //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
+      syncthreads();
+      float sum = 0;
+      for (int p = 0; p < contractionSize; ++p) {
+        sum += sliceStorage[p + (threadRow*contractionSize)] * dev_tensorData_Right[cell*numRightFields*contractionSize +
+          p*numRightFields + col];
+        }
+
+        dev_tensorResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = sum;
+    }
     currentBlock += gridDim.x;
   }
 }
@@ -528,8 +577,15 @@ runCudaTeamTest(const CudaStyle cudaStyle,
             float * const dev_tensorResults,
             vector<float> * const tensorResults) {
 
-  const unsigned int numberOfSlicingBlocks =
+
+  const unsigned int numberOfSlicingBlocks;
+  if(cudaStyle == CudaStyle_Slicing) {
+   numberOfSlicingBlocks =
                 min(maxNumberOfCudaBlocks, numberOfTensors*numRightFields);
+  } else {
+    numberOfSlicingBlocks =
+                 min(maxNumberOfCudaBlocks, ceil((numberOfTensors*numRightFields)/2));
+  }
   const unsigned int contractionSize = numPoints * tens1 * tens2;
   // Format the data the way we want and then copy it to the GPU
   vector<float> contractionData_GPURight(tensorData_Right.size());
@@ -600,6 +656,20 @@ runCudaTeamTest(const CudaStyle cudaStyle,
       doCudaContractions_Slicing_kernel<<<numberOfSlicingBlocks,
         numberOfThreadsPerBlock,
         contractionSize * sizeof(float)>>>(numberOfTensors,
+                                   numLeftFields,
+                                   numRightFields,
+                                   numPoints,
+                                   tens1,
+                                   tens2,
+                                   dev_contractionData_Left,
+                                   dev_contractionData_Right,
+                                   dev_tensorResults);
+    } else if (cudaStyle == CudaStyle_AdaptiveSlicing) {
+
+      //THIS IS ALL WRONG RIGHT NOW
+      doCudaContractions_AdaptiveSlicing_kernel<<<numberOfSlicingBlocks,
+        numberOfThreadsPerBlock,
+        contractionSize * sizeof(float) * 2>>>(numberOfTensors,
                                    numLeftFields,
                                    numRightFields,
                                    numPoints,
@@ -1238,6 +1308,10 @@ int main(int argc, char* argv[]) {
     cudaSlicingTimesMatrix(numberOfTensorSizes,
                             vector<float>(numberOfMemorySizes, 0));
 
+  vector<vector<float> >
+    cudaAdaptiveSlicingTimesMatrix(numberOfTensorSizes,
+                            vector<float>(numberOfMemorySizes, 0));
+
 #ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfTensorSizes,
@@ -1589,6 +1663,43 @@ int main(int argc, char* argv[]) {
             &tensorResults);
 
       }
+
+      {
+        //HARDCODED TO NUMRIGHTFIELDS*2 FOR NOW
+        //In theory this should be dynamically adjusted to be around
+        //256, since we seem to get best results when the
+        //numberOfThreadsPerBlock is around 256. I want to sanity check
+        //that this will actually create good performance by trying
+        //something in that ballpark and since numrightfields = 125 for
+        //the current example that's good.
+      const unsigned int numberOfThreadsPerBlock = numRightFields;
+
+      cudaAdaptiveSlicingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+        runCudaTeamTest(CudaStyle_AdaptiveSlicing,
+            numberOfThreadsPerBlock,
+            numberOfRepeats,
+            maxNumberOfCudaBlocks,
+            numberOfTensors,
+            numLeftFields,
+            numRightFields,
+            numPoints,
+            tens1,
+            tens2,
+            maxNumberOfTensors,
+            tensorSize,
+            memorySize,
+            correctResults,
+            clearCacheStyle,
+            dev_junkDataToClearTheCache,
+            junkDataSize,
+            tensorData_LayoutRight_A,
+            tensorData_LayoutRight_B,
+            dev_junkDataCounter,
+            &totalNumberOfRepeats,
+            dev_tensorResults,
+            &tensorResults);
+
+      }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
@@ -1752,6 +1863,8 @@ int main(int argc, char* argv[]) {
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
   writeTimesMatrixToFile(cudaSlicingTimesMatrix,
+                         prefix + string("cudaSlicingTimes") + suffix);
+  writeTimesMatrixToFile(cudaAdaptiveSlicingTimesMatrix,
                          prefix + string("cudaSlicingTimes") + suffix);
 #ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
