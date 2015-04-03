@@ -84,7 +84,8 @@ ax2d.set_position([box2d.x0, box2d.y0, box2d.width * 0.60, box2d.height])
 bbox_to_anchor2d = (1.87, 0.5)
 
 # make an image of just the number of dot products
-# TODO: you might want to make an image of the number of cells, so you'd adjust this.
+# TODO: you might want to make an image of the number of cells, so you'd adjust
+# this.
 fig3d = plt.figure(0)
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
@@ -100,6 +101,9 @@ if (makeImageFiles == True):
   print 'saved file to %s' % filename
 else:
   plt.show()
+
+
+
 
 # goal: make images showing just the raw times
 # find the min and max values across all flavors so that the color scale is the same for each graph
@@ -157,6 +161,28 @@ for memorySizeIndex in [-1, 0]:
     print 'saved file to %s' % filename
   else:
     plt.show()
+
+
+
+
+
+
+fig2d = plt.figure(figsize=[9,6])
+times = allTimes[0]
+plt.plot(numberOfContractions[0, :], times[0, :], color=colors[1], hold='on', linewidth=2)
+plt.plot(numberOfContractions[0, :], allTimes[1][0, :], color=colors[2], hold='on', linewidth=2)
+plt.xscale('log')
+plt.title('raw times for serial', fontsize=16)
+plt.xlabel('number of cells', fontsize=16)
+plt.ylabel('raw time [seconds]', fontsize=16)
+if (makeImageFiles == True):
+    filename = outputPrefix + 'RawTimes_2D_serial'+suffix
+    plt.savefig(filename + '.pdf')
+    print 'saved file to %s' % filename
+else:
+    plt.show()
+        
+
 
 
 # now make plots that are normalized by memory size
@@ -256,7 +282,6 @@ for memorySizeIndex in [-1, 0]:
   else:
     plt.show()
 
-
 # now make relative speedup over openmp
 # TODO: you might disable this part
 """
@@ -320,7 +345,6 @@ for memorySizeIndex in [-1, 0]:
 """
 # relative speedup over cudaIndependent
 # TODO: you might disable this part
-
 maxSpeedup = -10
 minSpeedup = 10
 for timesIndex in numpy.arange(2, len(allTimes)):
@@ -378,7 +402,6 @@ for memorySizeIndex in [-1, 0]:
     print 'saved file to %s' % filename
   else:
     plt.show()
-
 
 # these graphs are essentially duplicates of ones made already, but with a linear scale instead of logarithmic (by request of carter).
 # these graphs just compare kokkos omp versus openmp and kokkos cuda versus cuda

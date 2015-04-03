@@ -972,9 +972,12 @@ runKokkosReductionTest(const unsigned int numCells,
 					  dev_kokkosData_Left,
 					  dev_kokkosData_Right,
 					  dev_kokkosResults);
-	
+
 	int numTeams = numCells*numLeftFields*numRightFields;
 	int team_size = numPoints*t1*t2;
+	if (team_size > 64) {
+		team_size = 64;
+	}
 
 	const team_policy reduction_policy(numTeams, team_size);
 
@@ -1130,7 +1133,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{160, 320, 1600, 6400, 16000}};
+    {{90, 180, 360, 3600}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1254,8 +1257,8 @@ int main(int argc, char* argv[]) {
 
     // these must be the same size or else the allocation for vectors won't
     // work
-    const int numLeftFields = 10;
-    const int numRightFields = 10;
+    const int numLeftFields = 8;
+    const int numRightFields = 8;
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
     const unsigned int maxNumberOfTensors =
@@ -1347,8 +1350,8 @@ int main(int argc, char* argv[]) {
       }
       */
 
-      const int tens1 = 4;
-      const int tens2 = 4;
+      const int tens1 = 3;
+      const int tens2 = 3;
       const int numPoints = tensorSize/(tens1*tens2);
 
       // ===============================================================
