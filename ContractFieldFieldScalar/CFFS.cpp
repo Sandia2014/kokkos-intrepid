@@ -1684,9 +1684,7 @@ struct CFFS_Tiling_TeamFunctor_1D {
   //NOTE: THIS WHOLE THING WORKS ASSUMING NUMLEFTFIELDS==NUMRIGHTFIELDS
   const unsigned int numBasis = numLeftFields;
 
-  //NOTE: This relies on contractionSize being a multiple of tileSize (16)
   const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
-  //NOTE: This relies on numBasis being a multiple of tileSize(16)
   const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
   const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
@@ -2166,7 +2164,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{64, /*27 , 16, 32, 64, 128, 512, 1024, 2048*/}};
+    {{/*64, 27, 16,*/ 32, 64, 128, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -2306,7 +2304,7 @@ int main(int argc, char* argv[]) {
     const unsigned int contractionSize = contractionSizes[contractionSizeIndex];
 
     const int numPoints = contractionSize;
-    const int numBasis = 27;
+    const int numBasis = 32;
 
     const timespec thisSizesTic = getTimePoint();
 
@@ -2753,7 +2751,7 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &contractionResults);
       }
-      {
+      /*{
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
                              DeviceType>                   KokkosContractionData;
@@ -2778,7 +2776,7 @@ int main(int argc, char* argv[]) {
                                               &contractionResults);
 
       
-      }
+      }*/
       /*{
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
