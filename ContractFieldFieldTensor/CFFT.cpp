@@ -1096,8 +1096,8 @@ int main(int argc, char* argv[]) {
 
     // these must be the same size or else the allocation for vectors won't
     // work
-    const int numLeftFields = 10;
-    const int numRightFields = 10;
+    const int numLeftFields = 27;
+    const int numRightFields = 27;
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
     const unsigned int maxNumberOfTensors =
