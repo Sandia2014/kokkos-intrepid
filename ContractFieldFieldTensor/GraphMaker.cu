@@ -315,6 +315,7 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
   }
 }
 
+
 void
 writeTimesMatrixToFile(const vector<vector<float> > & times,
                        const string filename) {
@@ -1157,64 +1158,64 @@ void contractFieldFieldTensorSerial(vector<float> & outputFields,
      * the indexing is calculated.
      */
 
-    if (sumInto) {
-	for (int cl = 0; cl < numCells; cl++) {
-	    // Need to index into the different arrays, so I am doing the
-	    // calculation once here
-	    int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
-	    int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
-	    int cOut = numLeftFields*numRightFields;
-	    for (int lbf = 0; lbf < numLeftFields; lbf++) {
-		int lOff = numPoints*dim1Tensor*dim2Tensor;
-		int lOut = numRightFields;
-		for (int rbf = 0; rbf < numRightFields; rbf++) {
-		    float tmpVal = 0;
-		    int rOff = numPoints*dim1Tensor*dim2Tensor;
-		    for (int qp = 0; qp < numPoints; qp++) {
-			int pOff = dim1Tensor*dim2Tensor;
-			for (int iTens1 = 0; iTens1 < dim1Tensor; iTens1++) {
-			    int tenOff = dim2Tensor;
-			    for (int iTens2 = 0; iTens2 < dim2Tensor; iTens2++) {
-				tmpVal +=
-				leftFields[cl*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
-				rightFields[cl*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
-			    } // D2-loop
-			} // D1-loop
-		    } // P-loop
-		    outputFields[cl*cOut+lbf*lOut+rbf] += tmpVal;
-		} // R-loop
-	    } // L-loop
-	} // C-loop
-    }
-    // This is exactly the same as above but outputfields is set equal
-    // to temp instead of += temp
-    else {
-	for (int cl = 0; cl < numCells; cl++) {
-	    int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
-	    int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
-	    int cOut = numLeftFields*numRightFields;
-	    for (int lbf = 0; lbf < numLeftFields; lbf++) {
-		int lOff = numPoints*dim1Tensor*dim2Tensor;
-		int lOut = numRightFields;
-		for (int rbf = 0; rbf < numRightFields; rbf++) {
-		    float tmpVal = 0;
-		    int rOff = numPoints*dim1Tensor*dim2Tensor;
-		    for (int qp = 0; qp < numPoints; qp++) {
-			int pOff = dim1Tensor*dim2Tensor;
-			for (int iTens1 = 0; iTens1 < dim1Tensor; iTens1++) {
-			    int tenOff = dim2Tensor;
-			    for (int iTens2 = 0; iTens2 < dim2Tensor; iTens2++) {
-				tmpVal +=
-				leftFields[cl*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
-				rightFields[cl*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
-			    } // D2-loop
-			} // D1-loop
-		    } // P-loop
-		    outputFields[cl*cOut+lbf*lOut+rbf] = tmpVal;
-		} // R-loop
-	    } // L-loop
-	} // C-loop
-   }
+  if (sumInto) {
+    for (int cl = 0; cl < numCells; cl++) {
+      // Need to index into the different arrays, so I am doing the
+      // calculation once here
+      int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
+      int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
+      int cOut = numLeftFields*numRightFields;
+      for (int lbf = 0; lbf < numLeftFields; lbf++) {
+        int lOff = numPoints*dim1Tensor*dim2Tensor;
+        int lOut = numRightFields;
+        for (int rbf = 0; rbf < numRightFields; rbf++) {
+          float tmpVal = 0;
+          int rOff = numPoints*dim1Tensor*dim2Tensor;
+          for (int qp = 0; qp < numPoints; qp++) {
+            int pOff = dim1Tensor*dim2Tensor;
+            for (int iTens1 = 0; iTens1 < dim1Tensor; iTens1++) {
+              int tenOff = dim2Tensor;
+              for (int iTens2 = 0; iTens2 < dim2Tensor; iTens2++) {
+                tmpVal +=
+                  leftFields[cl*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
+                  rightFields[cl*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
+              } // D2-loop
+            } // D1-loop
+          } // P-loop
+          outputFields[cl*cOut+lbf*lOut+rbf] += tmpVal;
+        } // R-loop
+      } // L-loop
+    } // C-loop
+  }
+  // This is exactly the same as above but outputfields is set equal
+  // to temp instead of += temp
+  else {
+    for (int cl = 0; cl < numCells; cl++) {
+      int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
+      int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
+      int cOut = numLeftFields*numRightFields;
+      for (int lbf = 0; lbf < numLeftFields; lbf++) {
+        int lOff = numPoints*dim1Tensor*dim2Tensor;
+        int lOut = numRightFields;
+        for (int rbf = 0; rbf < numRightFields; rbf++) {
+          float tmpVal = 0;
+          int rOff = numPoints*dim1Tensor*dim2Tensor;
+          for (int qp = 0; qp < numPoints; qp++) {
+            int pOff = dim1Tensor*dim2Tensor;
+            for (int iTens1 = 0; iTens1 < dim1Tensor; iTens1++) {
+              int tenOff = dim2Tensor;
+              for (int iTens2 = 0; iTens2 < dim2Tensor; iTens2++) {
+                tmpVal +=
+                  leftFields[cl*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
+                  rightFields[cl*crOff+rbf*rOff+qp*pOff+iTens1*tenOff+iTens2];
+              } // D2-loop
+            } // D1-loop
+          } // P-loop
+          outputFields[cl*cOut+lbf*lOut+rbf] = tmpVal;
+        } // R-loop
+      } // L-loop
+    } // C-loop
+  }
 } // end contractFieldFieldTensor
 
 
