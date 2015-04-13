@@ -975,7 +975,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{16, 32, 64, 128, 256, 512}};
+    {{16, 32, 64, 128, 256, 512, 1024, 2048}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e8}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
