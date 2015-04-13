@@ -512,7 +512,6 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 
 
 
-#ifdef ENABLE_KOKKOS
 
 template <class DeviceType, class KokkosJunkVector>
 struct KokkosFunctor_ClearCache {
@@ -649,8 +648,8 @@ runKokkosTest(const unsigned int numCells,
     size_t * junkDataCounter,
     unsigned int * const totalNumberOfRepeats,
     vector<float> * results,
-    const int tile_size,
-    KokkosStyle kokkosStyle) {
+    KokkosStyle kokkosStyle,
+    const unsigned int tile_size) {
 
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
@@ -755,6 +754,7 @@ runKokkosTest(const unsigned int numCells,
                            KokkosJunkVector>
     kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
 
+  double totalElapsedTime = 0;
   if (kokkosStyle == KokkosStyle_Independent)
   {
     // breaking formatting convention because holy freak that's long
@@ -773,7 +773,6 @@ runKokkosTest(const unsigned int numCells,
             t2);
 
     timespec tic;
-    double totalElapsedTime = 0;
     for (unsigned int repeatIndex = 0;
         repeatIndex < numberOfRepeats+1; ++repeatIndex) {
       *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
@@ -825,7 +824,6 @@ runKokkosTest(const unsigned int numCells,
 
 
     timespec tic;
-    double totalElapsedTime = 0;
     for (unsigned int repeatIndex = 0;
         repeatIndex < numberOfRepeats+1; ++repeatIndex) {
       *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
@@ -890,9 +888,6 @@ runKokkosTest(const unsigned int numCells,
             std::numeric_limits<float>::quiet_NaN());
   return totalElapsedTime;
 }
-
-#endif // ENABLE_KOKKOS
-
 
 
 void contractFieldFieldTensorSerial(vector<float> & outputFields,
@@ -974,15 +969,13 @@ void contractFieldFieldTensorSerial(vector<float> & outputFields,
 
 int main(int argc, char* argv[]) {
 
-#ifdef ENABLE_KOKKOS
   Kokkos::initialize(argc, argv);
-#endif
 
   // ===============================================================
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{160, 320, 1600, 6400, 16000}};
+    {{160, 320, 1600, 3200, 6400}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1056,17 +1049,16 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     cudaSwitchingTimesMatrix(numberOfTensorSizes,
                              vector<float>(numberOfMemorySizes, 0));
-
-#ifdef ENABLE_KOKKOS
   vector<vector<float> >
     kokkosOmpTimesMatrix(numberOfTensorSizes,
                          vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
     kokkosCudaIndependentTimesMatrix(numberOfTensorSizes,
                                      vector<float>(numberOfMemorySizes, 0));
-#endif
 
-
+  vector<vector<float> >
+    kokkosCudaTilingTimesMatrix(numberOfTensorSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
   // create some junk data to use in clearing the cache
   size_t junkDataCounter = 0;
   const size_t junkDataSize = 1e7;
@@ -1349,7 +1341,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
+      /*
       {
         const unsigned int numberOfThreadsPerBlock = 1024;
 
@@ -1378,12 +1370,12 @@ int main(int argc, char* argv[]) {
                       dev_tensorResults,
                       &tensorResults);
 
-      }
+      } */
 
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
-      #if 0
+#if 0
       // ===============================================================
       // ***************** < do cuda reductions> ***********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -1442,11 +1434,10 @@ int main(int argc, char* argv[]) {
       // ===============================================================
 #endif
 
-#ifdef ENABLE_KOKKOS
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-      {
+      /*{
         typedef Kokkos::OpenMP                             DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutRight,
                              DeviceType>                   KokkosData;
@@ -1470,7 +1461,7 @@ int main(int argc, char* argv[]) {
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
                                               &tensorResults);
-      }
+      }*/
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutRight,
@@ -1495,12 +1486,41 @@ int main(int argc, char* argv[]) {
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
-                                              &tensorResults);
+                                              &tensorResults,
+                                              KokkosStyle_Independent,
+                                              0);
+      }
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosCudaTilingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+          runKokkosTest<DeviceType,
+                        KokkosData>(numberOfTensors,
+                                              numberOfRepeats,
+                                              numLeftFields,
+					      numRightFields,
+					      numPoints,
+					      tens1,
+					      tens2,
+                                              memorySize,
+                                              tensorData_LayoutRight_A,
+                                              tensorData_LayoutRight_B,
+                                              correctResults,
+                                              string("Kokkos cuda"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &tensorResults,
+                                              KokkosStyle_Tiling,
+                                              16);
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
-#endif // ENABLE_KOKKOS
 
       tensorSizeMatrix[tensorSizeIndex][memorySizeIndex] =
         tensorSize;
@@ -1542,18 +1562,14 @@ int main(int argc, char* argv[]) {
                          prefix + string("cudaReductionTimes") + suffix);
   writeTimesMatrixToFile(cudaSwitchingTimesMatrix,
                          prefix + string("cudaSwitchingTimes") + suffix);
-#ifdef ENABLE_KOKKOS
   writeTimesMatrixToFile(kokkosOmpTimesMatrix,
                          prefix + string("kokkosOmpTimes") + suffix);
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
-#endif
-
-#ifdef ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 7;
-#else
-  const unsigned int numberOfMethods = 5;
-#endif
+  writeTimesMatrixToFile(kokkosCudaTilingTimesMatrix,
+                         prefix + string("kokkosCudaTilingTimes") + suffix);
+  
+  const unsigned int numberOfMethods = 11;
 
   printf("done writing\n");
 
@@ -1600,15 +1616,11 @@ int main(int argc, char* argv[]) {
             totalNumberOfRepeats, float(totalNumberOfRepeats),
             expectedTotalNumberOfRepeats, float(expectedTotalNumberOfRepeats));
 
-#ifdef ENABLE_KOKKOS
   Kokkos::finalize();
-#endif
     exit(1);
   }
 
-#ifdef ENABLE_KOKKOS
   Kokkos::finalize();
-#endif
 
   return 0;
 }
