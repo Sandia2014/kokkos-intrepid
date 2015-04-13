@@ -1516,7 +1516,7 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &tensorResults,
                                               KokkosStyle_Tiling,
-                                              16);
+                                              27);
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
