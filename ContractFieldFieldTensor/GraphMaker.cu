@@ -48,7 +48,7 @@ convertCudaStyleToString(const CudaStyle cudaStyle) {
   case CudaStyle_Slicing:
     return string("CudaStyle_Slicing");
   case CudaStyle_AdaptiveSlicing:
-    return string("CudaStyle_AdaptiveSlicing")
+    return string("CudaStyle_AdaptiveSlicing");
   default:
     fprintf(stderr, "invalid cuda style\n");
     exit(1);
@@ -132,7 +132,7 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
     int cOut = numLeftFields*numRightFields;
     int lOff = numPoints*tens1*tens2;
     int lOut = numRightFields;
-    int rOff = numPoints*tens1*tens2;
+    //int rOff = numPoints*tens1*tens2;
     int pOff = tens1*tens2;
     int tenOff = tens2;
 
@@ -283,13 +283,13 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
 
   extern __shared__ float sliceStorage[];
 
+  //const unsigned int blockSize = blockDim.x;
+  const unsigned int contractionSize = numPoints * tens1 * tens2;
   const unsigned int threadRow = threadIdx.x / contractionSize;
   const unsigned int col = threadIdx.x - (threadRow * contractionSize);
 
   unsigned int currentBlock = blockIdx.x;
-  const unsigned int blockSize = blockDim.x;
-  const unsigned int numBlocks = ceil(numRightFields*numberOfTensors/2);
-  const unsigned int contractionSize = numPoints * tens1 * tens2;
+  const unsigned int numBlocks = gridDim.x;
 
   while (currentBlock < numBlocks) {
     syncthreads();
@@ -578,13 +578,13 @@ runCudaTeamTest(const CudaStyle cudaStyle,
             vector<float> * const tensorResults) {
 
 
-  const unsigned int numberOfSlicingBlocks;
+  unsigned int numberOfSlicingBlocks;
   if(cudaStyle == CudaStyle_Slicing) {
    numberOfSlicingBlocks =
                 min(maxNumberOfCudaBlocks, numberOfTensors*numRightFields);
   } else {
     numberOfSlicingBlocks =
-                 min(maxNumberOfCudaBlocks, ceil((numberOfTensors*numRightFields)/2));
+                 min(maxNumberOfCudaBlocks, (unsigned) ceil((numberOfTensors*numRightFields)/2));
   }
   const unsigned int contractionSize = numPoints * tens1 * tens2;
   // Format the data the way we want and then copy it to the GPU
@@ -1604,7 +1604,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do cuda independent> **********************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
+	/*
       {
         const unsigned int numberOfThreadsPerBlock = 256;
 
@@ -1663,7 +1663,7 @@ int main(int argc, char* argv[]) {
             &tensorResults);
 
       }
-
+*/
       {
         //HARDCODED TO NUMRIGHTFIELDS*2 FOR NOW
         //In theory this should be dynamically adjusted to be around
@@ -1672,7 +1672,7 @@ int main(int argc, char* argv[]) {
         //that this will actually create good performance by trying
         //something in that ballpark and since numrightfields = 125 for
         //the current example that's good.
-      const unsigned int numberOfThreadsPerBlock = numRightFields;
+      const unsigned int numberOfThreadsPerBlock = numLeftFields*2;
 
       cudaAdaptiveSlicingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
         runCudaTeamTest(CudaStyle_AdaptiveSlicing,
@@ -1766,6 +1766,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+  /*    
       {
         typedef Kokkos::OpenMP                             DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutRight,
@@ -1817,6 +1818,7 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &tensorResults);
       }
+    */  
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
@@ -1872,13 +1874,13 @@ int main(int argc, char* argv[]) {
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
 #endif
-
+/*
 #ifdef ENABLE_KOKKOS
   const unsigned int numberOfMethods = 7;
 #else
   const unsigned int numberOfMethods = 5;
 #endif
-
+*/
   printf("done writing\n");
 
   const size_t junkDataSum =
