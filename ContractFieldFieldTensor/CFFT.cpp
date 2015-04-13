@@ -975,8 +975,8 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{128, 256}};
-  const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
+    {{16, 32, 64, 128, 256, 512}};
+  const array<float, 2> memorySizeExtrema = {{1e7, 1e8}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
@@ -1096,8 +1096,8 @@ int main(int argc, char* argv[]) {
 
     // these must be the same size or else the allocation for vectors won't
     // work
-    const int numLeftFields = 27;
-    const int numRightFields = 27;
+    const int numLeftFields = 16;
+    const int numRightFields = 16;
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
     const unsigned int maxNumberOfTensors =
@@ -1516,7 +1516,7 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &tensorResults,
                                               KokkosStyle_Tiling,
-                                              27);
+                                              16);
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
