@@ -47,10 +47,10 @@ struct CFFS_Tiling_TeamFunctor_1D {
   KOKKOS_INLINE_FUNCTION
   void operator() (const team_member & thread) const {
     //NOTE: THIS WHOLE THING WORKS ASSUMING NUMLEFTFIELDS==NUMRIGHTFIELDS
-    const unsigned int numBasis = numLeftFields;
+    const unsigned int numBasis = _numLeftFields;
 
     // Here we pretend that all three contraction dimensions are a single dimension: contractionSize
-    const unsigned int contractionSize = dimTens1 * dimTens2 * numPoints;
+    const unsigned int contractionSize = _dimTens1 * _dimTens2 * _numPoints;
 
     const unsigned int numberOfPointTiles = ((contractionSize-1) / _tile_size) + 1;
     const unsigned int numberOfBasisTiles = ((numBasis-1) / _tile_size) + 1;
@@ -86,16 +86,16 @@ struct CFFS_Tiling_TeamFunctor_1D {
 
         // Here we break it back down so that we can use it
         const unsigned int leftContractionIndex = tileNumber*_tile_size + subCol;
-        const unsigned int left_qp = leftContractionIndex / (dimTens1*dimTens2);
-        const unsigned int left_combinedTens = leftContractionIndex - left_qp * (dimTens1 * dimTens2); // (mod)
-        const unsigned int left_iTens1 = left_combinedTens / dimTens2;
-        const unsigned int left_iTens2 = left_combinedTens - left_iTens1 * dimTens2; // (mod)
+        const unsigned int left_qp = leftContractionIndex / (_dimTens1*_dimTens2);
+        const unsigned int left_combinedTens = leftContractionIndex - left_qp * (_dimTens1 * _dimTens2); // (mod)
+        const unsigned int left_iTens1 = left_combinedTens / _dimTens2;
+        const unsigned int left_iTens2 = left_combinedTens - left_iTens1 * _dimTens2; // (mod)
 
         const unsigned int rightContractionIndex = tileNumber * _tile_size + subRow; 
-        const unsigned int right_qp = rightContractionIndex / (dimTens1*dimTens2);
-        const unsigned int right_combinedTens = rightContractionIndex - right_qp * (dimTens1 * dimTens2); // (mod)
-        const unsigned int right_iTens1 = right_combinedTens / dimTens2;
-        const unsigned int right_iTens2 = right_combinedTens - right_iTens1 * dimTens2; // (mod)
+        const unsigned int right_qp = rightContractionIndex / (_dimTens1*_dimTens2);
+        const unsigned int right_combinedTens = rightContractionIndex - right_qp * (_dimTens1 * _dimTens2); // (mod)
+        const unsigned int right_iTens1 = right_combinedTens / _dimTens2;
+        const unsigned int right_iTens2 = right_combinedTens - right_iTens1 * _dimTens2; // (mod)
 
         // load the left and right tiles into shared memory
         if (resultMatrix < _numCells && row < numBasis && leftContractionIndex < contractionSize)
