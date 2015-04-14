@@ -892,7 +892,7 @@ int main(int argc, char* argv[]) {
       // ===============================================================
       // ***************** < do kokkos> ********************************
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
+#if 0
       {
         typedef Kokkos::OpenMP                             DeviceType;
         typedef Kokkos::View<float****, Kokkos::LayoutRight,
@@ -965,12 +965,7 @@ int main(int argc, char* argv[]) {
                                               &calcResults, 
                                               KokkosStyle_OmpTeamsize12);
       }
-
-
-
-
-
-
+#endif
 
       {
         typedef Kokkos::Cuda                               DeviceType;
@@ -1166,7 +1161,7 @@ int main(int argc, char* argv[]) {
 #endif
 
 #ifdef ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 10;
+  const unsigned int numberOfMethods = 7;
 #else
   const unsigned int numberOfMethods = 2;
 #endif
