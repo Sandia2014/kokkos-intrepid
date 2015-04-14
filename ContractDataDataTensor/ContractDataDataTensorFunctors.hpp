@@ -265,11 +265,11 @@ struct ContractDataDataTensorTeamStrideFunctor {
     const unsigned int dim12 = _dim1 * _dim2;
     const unsigned int cellSize = _numPoints * dim12;
 
-    double sum = 0;
+    float sum = 0;
 
     Kokkos::parallel_reduce
       (Kokkos::TeamThreadLoop(thread,cellSize),
-       [&](const unsigned int indexWithinContraction, double & localsum) {
+       [&](const unsigned int indexWithinContraction, float & localsum) {
         const unsigned int qp = indexWithinContraction / dim12;
         const unsigned int indexWithinTens1Tens2Thing =
           indexWithinContraction - qp * dim12;
