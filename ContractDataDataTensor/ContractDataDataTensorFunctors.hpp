@@ -225,6 +225,9 @@ private:
 
 
 
+// kokkos setup
+// typedef Kokkos::Cuda                                DeviceType;
+
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
 struct ContractDataDataTensorTeamStrideFunctor {
   typedef DeviceType device_type;
@@ -237,12 +240,12 @@ struct ContractDataDataTensorTeamStrideFunctor {
 
   typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
   typedef typename team_policy::member_type team_member;
-  ContractDataDataTensorTeamStrideFunctor( int numPoints,
-      int dim1,
-      int dim2,
-      LeftViewType leftInput,
-      RightViewType rightInput,
-      OutputViewType output) :
+  ContractDataDataTensorTeamStrideFunctor(int numPoints,
+                                          int dim1,
+                                          int dim2,
+                                          LeftViewType leftInput,
+                                          RightViewType rightInput,
+                                          OutputViewType output) :
     _leftInput(leftInput),
     _rightInput(rightInput),
     _output(output),
@@ -253,44 +256,63 @@ struct ContractDataDataTensorTeamStrideFunctor {
     // Nothing to do
   }
 
+
   KOKKOS_INLINE_FUNCTION
   void operator()(const team_member& thread) const {
 
-    const unsigned int cell = thread.league_rank();
-    const unsigned int tIndex = thread.team_rank();
+    const unsigned int cellIndex = thread.league_rank();
 
     const unsigned int dim12 = _dim1 * _dim2;
     const unsigned int cellSize = _numPoints * dim12;
 
     float sum = 0;
-    float tsum = 0;
 
-    for (unsigned int innerIdx = tIndex; innerIdx < cellSize; innerIdx += thread.team_size() ) {
-      // Sane arithmetic version:
-      // const unsigned int qp = innerIdx / (_dim1 * _dim2);
-      // const unsigned int iTens1 = (innerIdx % (_dim1 * _dim2)) / _dim2;
-      // const unsigned int iTens2 = innerIdx % _dim2;
+    Kokkos::parallel_reduce
+      (Kokkos::TeamThreadLoop(thread,cellSize),
+       [&](const unsigned int indexWithinContraction, float & localsum) {
+        const unsigned int qp = indexWithinContraction / dim12;
+        const unsigned int indexWithinTens1Tens2Thing =
+          indexWithinContraction - qp * dim12;
+        const unsigned int iTens1 = indexWithinTens1Tens2Thing / _dim2;
+        const unsigned int iTens2 = indexWithinTens1Tens2Thing - iTens1*_dim2;
 
-      // Optimized arithmetic version:
-      const unsigned int qp = innerIdx / dim12;
-      const unsigned int idxDivDim2 = innerIdx / _dim2;
-      const unsigned int iTens1 = idxDivDim2 - _dim1 * qp;
-      const unsigned int iTens2 = innerIdx - idxDivDim2 *_dim2;
+        localsum +=  _leftInput(cellIndex, qp, iTens1, iTens2) *
+          _rightInput(cellIndex, qp, iTens1, iTens2);
+      } , sum );
 
-      sum +=  _leftInput(cell, qp, iTens1, iTens2) *
-       _rightInput(cell, qp, iTens1, iTens2);
+    if (thread.team_rank() == 0) {
+      _output(cellIndex) = sum;
     }
-
-    thread.team_barrier();
-
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()),
-        [&] (const unsigned int& dummy, float& localsum) {
-        localsum += sum;
-      }, tsum);
-
-    // FIXME everyone is writing this?
-    _output(cell) = tsum;
   }
+
+#if 0
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const team_member& thread) const {
+
+    const unsigned int cell = thread.league_rank();
+    const unsigned int dim12 = _dim1 * _dim2;
+    const unsigned int cellSize = _numPoints * dim12;
+
+    float sum = 0;
+
+    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, cellSize),
+        [&] (const unsigned int innerIdx, float& localsum) {
+          const unsigned int qp = innerIdx / dim12;
+          const unsigned int indexWithinTens1Tens2 = innerIdx - qp * dim12;
+          const unsigned int iTens1 = indexWithinTens1Tens2 / _dim2;
+          const unsigned int iTens2 = indexWithinTens1Tens2 - iTens1*_dim2;
+
+          localsum +=  _leftInput(cell, qp, iTens1, iTens2) *
+                       _rightInput(cell, qp, iTens1, iTens2);
+        },
+        sum);
+
+    if (thread.team_rank() == 0) {
+      _output(cell) = sum;
+    }
+  }
+#endif
 private:
   ContractDataDataTensorTeamStrideFunctor();
 };
