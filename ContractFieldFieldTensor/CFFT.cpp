@@ -915,7 +915,7 @@ int main(int argc, char* argv[]) {
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
     {{160, 320, 1600, 6400, 16000}};
-  const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
+  const array<float, 2> memorySizeExtrema = {{1e7, 1e8}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
