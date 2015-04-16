@@ -38,6 +38,7 @@ typedef team_policy::member_type team_member;
 #include "CFFT_AdaptiveSlicing_Cuda.hpp"
 #include "CFFT_Independent_Kokkos.hpp"
 #include "CFFT_Slicing_Kokkos.hpp"
+#include "CFFT_AdaptiveSlicing_Kokkos.hpp"
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
@@ -46,7 +47,9 @@ enum CudaStyle {CudaStyle_Independent,
 
 enum KokkosStyle {
   KokkosStyle_Independent,
-  KokkosStyle_Tiling
+  KokkosStyle_Tiling,
+  KokkosStyle_Slicing,
+  KokkosStyle_AdaptiveSlicing
 };
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
@@ -533,9 +536,9 @@ runCudaTeamTest(const CudaStyle cudaStyle,
                                    dev_tensorResults);
     } else if (cudaStyle == CudaStyle_AdaptiveSlicing) {
 
-      //THIS IS ALL WRONG RIGHT NOW
-      doCudaContractions_AdaptiveSlicing_kernel<<<numberOfSlicingBlocks/2,
-        numberOfThreadsPerBlock*2,
+
+      doCudaContractions_AdaptiveSlicing_kernel<<<numberOfSlicingBlocks,
+        numberOfThreadsPerBlock,
         contractionSize * sizeof(float) * 2>>>(numberOfTensors,
                                    numLeftFields,
                                    numRightFields,
@@ -780,7 +783,8 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
     const vector<int> & junkDataToClearTheCache,
     size_t * junkDataCounter,
     unsigned int * const totalNumberOfRepeats,
-    vector<float> * contractionResults) {
+    vector<float> * contractionResults,
+    KokkosStyle kokkosStyle) {
 
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
@@ -877,7 +881,9 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
     KokkosJunkVector>
       kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
 
-
+      timespec tic;
+      double totalElapsedTime = 0;
+  if(kokkosStyle == KokkosStyle_Slicing){
   // breaking formatting convention because holy freak that's long
   CFFS_Slicing_TeamFunctor<KokkosContractionData,
     KokkosContractionData,
@@ -895,37 +901,88 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
   const team_policy slicing_policy(
       numberOfContractions*numLeftFields , numRightFields );
 
+      for (unsigned int repeatIndex = 0;
+          repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+        *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+        if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+              repeatIndex == 1) ||
+            clearCacheStyle == ClearCacheAfterEveryRepeat) {
+          tic = getTimePoint();
+        }
 
-  timespec tic;
-  double totalElapsedTime = 0;
-  for (unsigned int repeatIndex = 0;
-      repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
-    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
-    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
-          repeatIndex == 1) ||
-        clearCacheStyle == ClearCacheAfterEveryRepeat) {
-      tic = getTimePoint();
-    }
+        // actually do the calculation
+        Kokkos::parallel_for(slicing_policy, contractionFunctor);
 
-    // actually do the calculation
-    Kokkos::parallel_for(slicing_policy, contractionFunctor);
-
-    // wait for this repeat's results to finish
-    Kokkos::fence();
+        // wait for this repeat's results to finish
+        Kokkos::fence();
 
 
-    if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
-      const timespec toc = getTimePoint();
-      const float elapsedTime = getElapsedTime(tic, toc);
-      totalElapsedTime += elapsedTime;
+        if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+          const timespec toc = getTimePoint();
+          const float elapsedTime = getElapsedTime(tic, toc);
+          totalElapsedTime += elapsedTime;
 
-      // attempt to scrub all levels of cache
-      size_t partialJunkDataCounter = 0;
-      Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
-          partialJunkDataCounter);
-      *junkDataCounter += partialJunkDataCounter;
-    }
+          // attempt to scrub all levels of cache
+          size_t partialJunkDataCounter = 0;
+          Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+              partialJunkDataCounter);
+          *junkDataCounter += partialJunkDataCounter;
+        }
+      }
   }
+  else {
+    CFFS_AdaptiveSlicing_TeamFunctor<KokkosContractionData,
+      KokkosContractionData,
+      KokkosContractionResults>
+        contractionFunctor(numberOfContractions,
+            numLeftFields,
+            numRightFields,
+            numPoints,
+            tens1,
+            tens2,
+            dev_kokkosContractionData_Left,
+            dev_kokkosContractionData_Right,
+            dev_kokkosContractionResults);
+
+    const team_policy slicing_policy(
+        numberOfContractions*numLeftFields/2 , numRightFields*2 );
+
+        for (unsigned int repeatIndex = 0;
+            repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+          *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+          if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+                repeatIndex == 1) ||
+              clearCacheStyle == ClearCacheAfterEveryRepeat) {
+            tic = getTimePoint();
+          }
+
+          // actually do the calculation
+          Kokkos::parallel_for(slicing_policy, contractionFunctor);
+
+
+          // actually do the calculation
+          Kokkos::parallel_for(slicing_policy, contractionFunctor);
+
+          // wait for this repeat's results to finish
+          Kokkos::fence();
+
+
+          if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+            const timespec toc = getTimePoint();
+            const float elapsedTime = getElapsedTime(tic, toc);
+            totalElapsedTime += elapsedTime;
+
+            // attempt to scrub all levels of cache
+            size_t partialJunkDataCounter = 0;
+            Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+                partialJunkDataCounter);
+            *junkDataCounter += partialJunkDataCounter;
+          }
+        }
+  }
+
+
+
   if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
     const timespec toc = getTimePoint();
     totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
@@ -1299,7 +1356,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{160, 320, 1600, 6400}};
+    {{160, 320}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e8}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1397,6 +1454,10 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     kokkosSlicingTimesMatrix(numberOfContractionSizes,
                                    	 vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    kokkosAdaptiveSlicingTimesMatrix(numberOfContractionSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
 
 
 #endif
@@ -1737,7 +1798,7 @@ int main(int argc, char* argv[]) {
             dev_tensorResults,
             &tensorResults);
       }
-	/*
+
       {
         //HARDCODED TO NUMRIGHTFIELDS*2 FOR NOW
         //In theory this should be dynamically adjusted to be around
@@ -1774,7 +1835,7 @@ int main(int argc, char* argv[]) {
             &tensorResults);
 
       }
-	*/
+
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda slicing> **********************
       // ===============================================================
@@ -1920,7 +1981,35 @@ int main(int argc, char* argv[]) {
               junkDataToClearTheCache,
               &junkDataCounter,
               &totalNumberOfRepeats,
-              &contractionResults);
+              &contractionResults,
+              KokkosStyle_Slicing);
+      }
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosAdaptiveSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosAdaptiveSlicingTest<DeviceType,
+          KokkosContractionData>(numberOfContractions,
+              numberOfRepeats,
+              numLeftFields,
+              numRightFields,
+              numPoints,
+              tens1,
+              tens2,
+              memorySize,
+              tensorData_LayoutRight_A,
+              tensorData_LayoutRight_B,
+              correctResults,
+              string("Kokkos Adaptive Slicing"),
+              clearCacheStyle,
+              junkDataToClearTheCache,
+              &junkDataCounter,
+              &totalNumberOfRepeats,
+              &contractionResults,
+              KokkosStyle_AdaptiveSlicing);
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
@@ -2010,6 +2099,9 @@ int main(int argc, char* argv[]) {
 
   writeTimesMatrixToFile(kokkosSlicingTimesMatrix,
                          prefix + string("kokkosSlicingTimes") + suffix);
+
+  writeTimesMatrixToFile(kokkosAdaptiveSlicingTimesMatrix,
+                         prefix + string("kokkosAdaptiveSlicingTimes") + suffix);
 #endif
 
   printf("done writing\n");
