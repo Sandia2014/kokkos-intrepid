@@ -26,11 +26,17 @@ using std::array;
 // header file for openmp
 #include <omp.h>
 
+#ifndef KOKKOS_INCLUDE
+#define KOKKOS_INCLUDE
 #include <Kokkos_Core.hpp>
 typedef Kokkos::DefaultExecutionSpace Device;
 typedef Kokkos::HostSpace::execution_space Host;
 typedef Kokkos::TeamPolicy<Device> team_policy;
 typedef team_policy::member_type team_member;
+#endif
+
+#include "CFFS_Reduction.hpp"
+
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
@@ -1030,7 +1036,7 @@ runKokkosTest(const unsigned int numberOfContractions,
 }
 
 
-
+#if 0
 template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
 struct CFFS_Reduction_TeamFunctor {
 	unsigned int numCells;
@@ -1102,7 +1108,7 @@ struct CFFS_Reduction_TeamFunctor {
 			}
 		}
 };
-
+#endif
 
 
 
@@ -2156,7 +2162,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16, 32,*/ 8, /*128, 512, 1024/*, 2048*/}};
+    {{/*8, 16, 32,*/ 8, 64, 2048/*128, 512, 1024/*, 2048*/}};
   const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -2768,7 +2774,6 @@ int main(int argc, char* argv[]) {
 
       
       }
-      /*
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2793,7 +2798,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults);
       }
-      
+     /* 
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
