@@ -45,7 +45,8 @@ struct CFFS_Tiling_TeamFunctor {
 
     unsigned int resultTileIndex = thread.league_rank();
 
-    Kokkos::View<float*, Kokkos::MemoryUnmanaged> tileStorage(thread.team_shmem(), 2 * tile_size * tile_size);
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> tileStorageLeft(thread.team_shmem(), tile_size * tile_size);
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> tileStorageRight(thread.team_shmem(), tile_size * tile_size);
 
     while (resultTileIndex < numberOfTiles) {
 
@@ -71,22 +72,22 @@ struct CFFS_Tiling_TeamFunctor {
 
         // load the left and right tiles into shared memory
         if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
-          tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
+          LeftTileStorage(subRow, subCol)  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
         else
-          tileStorage(thread.team_rank())  = 0.0;
+          LeftTileStorage(subRow, subCol)  = 0.0;
 
         if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis)
-          tileStorage(thread.team_rank() + (tile_size * tile_size)) =
+          RightTileStorage(subRow, subCol) =
                    rightView(resultMatrix, tileNumber * tile_size + subRow, col);
         else
-          tileStorage(thread.team_rank() + (tile_size * tile_size)) = 0.0;
+          RightTileStorage(subRow, subCol) = 0.0;
 
         // make sure everyone's finished loading their pieces of the tiles
         thread.team_barrier();
         for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
           sum +=
-            tileStorage(leftBaseIndex + dummy) *
-            tileStorage(rightBaseIndex + dummy * tile_size);
+            LeftTileStorage(subRow, dummy) *
+            RightTileStorage(dummy,subCol);
         }
         thread.team_barrier();
       }
