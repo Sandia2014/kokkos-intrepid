@@ -852,19 +852,21 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
   typedef typename KokkosContractionData::HostMirror     KokkosContractionData_Host;
-  typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+  typedef Kokkos::View<float***, Kokkos::LayoutRight,
           DeviceType>              KokkosContractionResults;
   typedef typename KokkosContractionResults::HostMirror  KokkosContractionResults_Host;
   typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
-  const unsigned int numPoints = contractionSize;
+ 
 
 
 
   KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
       numberOfContractions,
       numPoints,
+      tens1,
+      tens2,
       numRightFields);
   KokkosContractionData_Host kokkosContractionData_Right =
     Kokkos::create_mirror_view(dev_kokkosContractionData_Right);
@@ -872,7 +874,9 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
   KokkosContractionData dev_kokkosContractionData_Left("kokkos data B",
       numberOfContractions,
       numLeftFields,
-      numPoints);
+      numPoints,
+      tens1,
+      tens2);
   KokkosContractionData_Host kokkosContractionData_Left =
     Kokkos::create_mirror_view(dev_kokkosContractionData_Left);
 
