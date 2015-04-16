@@ -88,26 +88,26 @@ struct ContractDataDataTensor_TeamDepth2Functor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const team_member& thread) const {
 
-    const unsigned int elementIndex = thread.league_rank();
-    const unsigned int dim1 = thread.team_rank() / _dim2;
-    const unsigned int dim2 = thread.team_rank() % _dim2;
+    // A team does one cell
+    const unsigned int cellIndex = thread.league_rank();
 
     float sum = 0;
-    float tsum = 0;
-
-
-    for (unsigned int qp=0; qp < _numPoints; ++qp) {
-        sum +=  _leftInput(elementIndex, qp, dim1, dim2) *
-          _rightInput(elementIndex, qp, dim1, dim2);
-    }
-
+    // Each of the _dim1 * _dim2 threads qp dimension
     Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2),
-        [&] (const unsigned int& dim, float& localsum) {
-        localsum += sum;
-      }, tsum);
+        [&] (const unsigned int threadIndex, float& localsum) {
+          const unsigned int dim1 = threadIndex / _dim2;
+          const unsigned int dim2 = threadIndex % _dim2;
 
-    // FIXME everyone is writing this?
-    _output(elementIndex) = tsum;
+          for (unsigned int qp = 0; qp < _numPoints; ++qp) {
+            localsum +=  _leftInput(cellIndex, qp, dim1, dim2) *
+              _rightInput(cellIndex, qp, dim1, dim2);
+          }
+
+      }, sum);
+
+    if (thread.team_rank() == 0) {
+      _output(cellIndex) = sum;
+    }
   }
 
 private:
@@ -146,27 +146,24 @@ struct ContractDataDataTensor_TeamDepth1Functor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const team_member& thread) const {
 
-    const unsigned int elementIndex = thread.league_rank();
-    const unsigned int dim2 = thread.team_rank();
+    // A team does one cell
+    const unsigned int cellIndex = thread.league_rank();
 
     float sum = 0;
-    float tsum = 0;
-
-
-    for (unsigned int qp=0; qp < _numPoints; ++qp) {
-      for (unsigned int d1=0; d1 < _dim1; ++d1) {
-        sum +=  _leftInput(elementIndex, qp, d1, dim2) *
-          _rightInput(elementIndex, qp, d1, dim2);
-      }
-    }
-
+    // Each of the _dim1 threads contracts the qp and d1 dimensions
     Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim2),
-        [&] (const unsigned int& dim, float& localsum) {
-        localsum += sum;
-      }, tsum);
+        [&] (const unsigned int dim2, float& localsum) {
+          for (unsigned int qp=0; qp < _numPoints; ++qp) {
+            for (unsigned int d1=0; d1 < _dim1; ++d1) {
+              localsum +=  _leftInput(cellIndex, qp, d1, dim2) *
+                _rightInput(cellIndex, qp, d1, dim2);
+            }
+          }
+      }, sum);
 
-    // FIXME everyone is writing this?
-    _output(elementIndex) = tsum;
+    if (thread.team_rank() == 0) {
+      _output(cellIndex) = sum;
+    }
   }
 
 private:
@@ -207,7 +204,7 @@ struct ContractDataDataTensorIndependentFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
 
-
+    // Each thread does one cell, contracting the qp, d1, and d2 dimensions
     double tmp = 0;
     for (int qp=0; qp < _numPoints; qp++) {
       for (int iTens1=0; iTens1 < _dim1; iTens1++) {
@@ -224,9 +221,6 @@ private:
 };
 
 
-
-// kokkos setup
-// typedef Kokkos::Cuda                                DeviceType;
 
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
 struct ContractDataDataTensorTeamStrideFunctor {
@@ -260,8 +254,10 @@ struct ContractDataDataTensorTeamStrideFunctor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const team_member& thread) const {
 
+    // A team does one cell
     const unsigned int cellIndex = thread.league_rank();
 
+    // Some useful derived constants that we'll reuse
     const unsigned int dim12 = _dim1 * _dim2;
     const unsigned int cellSize = _numPoints * dim12;
 
@@ -270,6 +266,8 @@ struct ContractDataDataTensorTeamStrideFunctor {
     Kokkos::parallel_reduce
       (Kokkos::TeamThreadLoop(thread,cellSize),
        [&](const unsigned int indexWithinContraction, float & localsum) {
+
+        // Calculate the next element to add (striding by teamsize)
         const unsigned int qp = indexWithinContraction / dim12;
         const unsigned int indexWithinTens1Tens2Thing =
           indexWithinContraction - qp * dim12;
@@ -285,34 +283,6 @@ struct ContractDataDataTensorTeamStrideFunctor {
     }
   }
 
-#if 0
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const team_member& thread) const {
-
-    const unsigned int cell = thread.league_rank();
-    const unsigned int dim12 = _dim1 * _dim2;
-    const unsigned int cellSize = _numPoints * dim12;
-
-    float sum = 0;
-
-    Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, cellSize),
-        [&] (const unsigned int innerIdx, float& localsum) {
-          const unsigned int qp = innerIdx / dim12;
-          const unsigned int indexWithinTens1Tens2 = innerIdx - qp * dim12;
-          const unsigned int iTens1 = indexWithinTens1Tens2 / _dim2;
-          const unsigned int iTens2 = indexWithinTens1Tens2 - iTens1*_dim2;
-
-          localsum +=  _leftInput(cell, qp, iTens1, iTens2) *
-                       _rightInput(cell, qp, iTens1, iTens2);
-        },
-        sum);
-
-    if (thread.team_rank() == 0) {
-      _output(cell) = sum;
-    }
-  }
-#endif
 private:
   ContractDataDataTensorTeamStrideFunctor();
 };
@@ -348,27 +318,24 @@ struct ContractDataDataTensor_TeamDepth3Functor {
   KOKKOS_INLINE_FUNCTION
   void operator()(const team_member& thread) const {
 
-    const unsigned int elementIndex = thread.league_rank();
-    const unsigned int threadIndex = thread.team_rank();
-
-    const unsigned int qp = threadIndex / (_dim1 * _dim2);
-    const unsigned int dim1 = threadIndex % (_dim1 * _dim2) / _dim2;
-    const unsigned int dim2 = threadIndex % _dim2;
+    // A team does one cell
+    const unsigned int cellIndex = thread.league_rank();
 
     float sum = 0;
-    float tsum = 0;
 
-
-    sum +=  _leftInput(elementIndex, qp, dim1, dim2) *
-            _rightInput(elementIndex, qp, dim1, dim2);
-
+    // Each of the _dim1 * _dim2 * _numPoints threads does one multiply
     Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2 * _numPoints),
-        [&] (const unsigned int& dim, float& localsum) {
-        localsum += sum;
-      }, tsum);
+        [&] (const unsigned int threadIndex, float& localsum) {
+          const unsigned int qp = threadIndex / (_dim1 * _dim2);
+          const unsigned int dim1 = threadIndex % (_dim1 * _dim2) / _dim2;
+          const unsigned int dim2 = threadIndex % _dim2;
+          localsum +=  _leftInput(cellIndex, qp, dim1, dim2) *
+          _rightInput(cellIndex, qp, dim1, dim2);
+        }, sum);
 
-    // FIXME everyone is writing this?
-    _output(elementIndex) = tsum;
+    if (thread.team_rank() == 0) {
+      _output(cellIndex) = sum;
+    }
   }
 
 private:
