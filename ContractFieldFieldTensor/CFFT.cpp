@@ -31,7 +31,9 @@ using std::array;
 #endif // ENABLE_KOKKOS
 
 enum CudaStyle {CudaStyle_Independent,
-                CudaStyle_Reduction};
+                CudaStyle_Reduction,
+                CudaStyle_Slicing,
+                CudaStyle_AdaptiveSlicing};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
@@ -43,6 +45,10 @@ convertCudaStyleToString(const CudaStyle cudaStyle) {
     return string("CudaStyle_Independent");
   case CudaStyle_Reduction:
     return string("CudaStyle_Reduction");
+  case CudaStyle_Slicing:
+    return string("CudaStyle_Slicing");
+  case CudaStyle_AdaptiveSlicing:
+    return string("CudaStyle_AdaptiveSlicing");
   default:
     fprintf(stderr, "invalid cuda style\n");
     exit(1);
@@ -109,8 +115,6 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
                                  const unsigned int numPoints,
                                  const unsigned int tens1,
                                  const unsigned int tens2,
-                                 const unsigned int maxNumberOfTensors,
-                                 const unsigned int tensorSize,
                                  const float * const __restrict__ dev_tensorData_Left,
                                  const float * const __restrict__ dev_tensorData_Right,
                                  float * dev_tensorResults) {
@@ -123,6 +127,26 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
     int lbf = matrixIndex / numRightFields;
     int rbf = matrixIndex % numRightFields;
 
+    int clOff = numLeftFields*numPoints*tens1*tens2;
+    int crOff = numRightFields*numPoints*tens1*tens2;
+    int cOut = numLeftFields*numRightFields;
+    int lOff = numPoints*tens1*tens2;
+    int lOut = numRightFields;
+    //int rOff = numPoints*tens1*tens2;
+    int pOff = tens1*tens2;
+    int tenOff = tens2;
+
+    for (int qp = 0; qp < numPoints; qp++) {
+      for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
+        for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
+          sum += dev_tensorData_Left[myCell*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
+          dev_tensorData_Right[myCell*crOff+qp*numRightFields*tens1*tens2+
+                              iTens1*numRightFields*tens2+iTens2*numRightFields
+                              +rbf];
+        }
+      }
+    }
+    /*
     for (int qp = 0; qp < numPoints; qp++) {
       for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
         for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
@@ -133,7 +157,9 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
         }
       }
     }
-    dev_tensorResults[myID*numLeftFields*numRightFields + lbf*numRightFields + rbf] = sum;
+    */
+    dev_tensorResults[myCell*cOut+lbf*lOut+rbf] = sum;
+    //dev_tensorResults[myID*numLeftFields*numRightFields + lbf*numRightFields + rbf] = sum;
     myID += blockDim.x * gridDim.x;
   }
 }
@@ -297,8 +323,8 @@ runCudaTest(const CudaStyle cudaStyle,
       for (int iTens1 = 0; iTens1 < tens1; ++iTens1) {
         for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
           for(int rbf = 0; rbf < numRightFields; ++rbf) {
-            contractionData_GPURight[cl*cROff + qp*numRightFields*tens1*tens2+
-                    iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf] =
+            contractionData_GPURight[cl*cROff + qp*numRightFields*pROff + iTens1*numRightFields*tROff +
+            iTens2*numRightFields + rbf] =
             tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
             iTens1*tROff + iTens2*t2ROff];
           }
@@ -312,6 +338,28 @@ runCudaTest(const CudaStyle cudaStyle,
       }
     }
   }
+  /*
+  for (int cl = 0; cl < numberOfTensors; ++cl) {
+    for (int qp = 0; qp < numPoints; ++qp) {
+      for (int iTens1 = 0; iTens1 < tens1; ++iTens1) {
+        for (int iTens2 = 0; iTens2 < tens2; ++iTens2) {
+          for(int rbf = 0; rbf < numRightFields; ++rbf) {
+            contractionData_GPURight[cl*numPoints*numRightFields*tens1*tens2 + qp*numRightFields*tens1*tens2+
+            iTens1*numRightFields*tens1+ numRightFields*iTens2+rbf] =
+            tensorData_Right[cl*cROff + rbf*basisOff + qp*pROff +
+            iTens1*tROff + iTens2*t2ROff];
+          }
+          for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+            contractionData_GPULeft[cl*cLOff + lbf*basisOff + qp*pLOff +
+            iTens1*tOff + iTens2] =
+            tensorData_Left[cl*cLOff + lbf*basisOff + qp*pLOff +
+            iTens1*tOff + iTens2];
+          }
+        }
+      }
+    }
+  }
+  */
 
   // Then copy it over
   float * dev_contractionData_Right;
@@ -352,8 +400,6 @@ runCudaTest(const CudaStyle cudaStyle,
                                    numPoints,
                                    tens1,
                                    tens2,
-                                   maxNumberOfTensors,
-                                   tensorSize,
                                    dev_contractionData_Left,
                                    dev_contractionData_Right,
                                    dev_tensorResults);
@@ -411,7 +457,8 @@ runCudaTest(const CudaStyle cudaStyle,
   checkCudaError(cudaMemcpy(dev_tensorResults, &tensorResults->at(0),
                             numberOfTensors * numLeftFields*numRightFields*sizeof(float),
                             cudaMemcpyHostToDevice));
-
+  checkCudaError(cudaFree(dev_contractionData_Right));
+  checkCudaError(cudaFree(dev_contractionData_Left));
   return totalElapsedTime;
 }
 
@@ -1283,8 +1330,7 @@ int main(int argc, char* argv[]) {
       // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
       {
-        const unsigned int numberOfThreadsPerBlock = 1024;
-
+        const unsigned int numberOfThreadsPerBlock = 256;
         cudaIndependent_TimesMatrix[tensorSizeIndex][memorySizeIndex] =
           runCudaTest(CudaStyle_Independent,
                       numberOfThreadsPerBlock,
@@ -1309,7 +1355,6 @@ int main(int argc, char* argv[]) {
                       &totalNumberOfRepeats,
                       dev_tensorResults,
                       &tensorResults);
-
       }
 
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
