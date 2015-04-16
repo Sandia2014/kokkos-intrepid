@@ -32,8 +32,11 @@ typedef Kokkos::DefaultExecutionSpace Device;
 typedef Kokkos::HostSpace::execution_space Host;
 typedef Kokkos::TeamPolicy<Device> team_policy;
 typedef team_policy::member_type team_member;
-#include "CFFT_Tiling.hpp"
-
+#include "CFFT_Tiling_Kokkos.hpp"
+#include "CFFT_Independent_Cuda.hpp"
+#include "CFFT_Slicing_Cuda.hpp"
+#include "CFFT_AdaptiveSlicing_Cuda.hpp"
+#include "CFFT_Independent_Kokkos.hpp"
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
@@ -117,141 +120,6 @@ doCudaClearCache_kernel(const unsigned int junkDataSize,
   atomicAdd(dev_result, partialSum);
 }
 
-__global__
-void
-doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
-                                 const unsigned int numLeftFields,
-                                 const unsigned int numRightFields,
-                                 const unsigned int numPoints,
-                                 const unsigned int tens1,
-                                 const unsigned int tens2,
-                                 const float * const __restrict__ dev_tensorData_Left,
-                                 const float * const __restrict__ dev_tensorData_Right,
-                                 float * dev_tensorResults) {
-
-  unsigned int myID = blockIdx.x * blockDim.x + threadIdx.x;
-  while (myID < (numberOfTensors * numLeftFields * numRightFields)) {
-    float sum = 0;
-    int myCell = myID / (numLeftFields * numRightFields);
-    int matrixIndex = myID % (numLeftFields * numRightFields);
-    int lbf = matrixIndex / numRightFields;
-    int rbf = matrixIndex % numRightFields;
-
-    int clOff = numLeftFields*numPoints*tens1*tens2;
-    int crOff = numRightFields*numPoints*tens1*tens2;
-    int cOut = numLeftFields*numRightFields;
-    int lOff = numPoints*tens1*tens2;
-    int lOut = numRightFields;
-    //int rOff = numPoints*tens1*tens2;
-    int pOff = tens1*tens2;
-    int tenOff = tens2;
-
-    for (int qp = 0; qp < numPoints; qp++) {
-      for (int iTens1 = 0; iTens1 < tens1; iTens1++) {
-        for (int iTens2 = 0; iTens2 < tens2; iTens2++) {
-          sum += dev_tensorData_Left[myCell*clOff+lbf*lOff+qp*pOff+iTens1*tenOff+iTens2] *
-          dev_tensorData_Right[myCell*crOff+qp*numRightFields*tens1*tens2+
-                              iTens1*numRightFields*tens2+iTens2*numRightFields
-                              +rbf];
-        }
-      }
-    }
-
-    dev_tensorResults[myCell*cOut+lbf*lOut+rbf] = sum;
-
-    myID += blockDim.x * gridDim.x;
-  }
-}
-
-__global__
-void
-doCudaContractions_Slicing_kernel(const unsigned int numberOfTensors,
-                                 const unsigned int numLeftFields,
-                                 const unsigned int numRightFields,
-                                 const unsigned int numPoints,
-                                 const unsigned int tens1,
-                                 const unsigned int tens2,
-                                 const float * const __restrict__ dev_tensorData_Left,
-                                 const float * const __restrict__ dev_tensorData_Right,
-                                 float * dev_tensorResults) {
-
-  extern __shared__ float sliceStorage[];
-
-  const unsigned int col = threadIdx.x;
-
-  unsigned int currentBlock = blockIdx.x;
-  const unsigned int numBlocks = numRightFields*numberOfTensors;
-  const unsigned int contractionSize = numPoints * tens1 * tens2;
-
-  while (currentBlock < numBlocks) {
-    syncthreads();
-    const unsigned int cell = currentBlock / numLeftFields;
-    const unsigned int row = currentBlock - cell * numLeftFields;
-
-    for (unsigned int p = col; p < contractionSize; p += blockDim.x) {
-      sliceStorage[p] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
-        row*contractionSize + p];
-    }
-    //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
-    syncthreads();
-
-    float sum = 0;
-    for (int p = 0; p < contractionSize; ++p) {
-      sum += sliceStorage[p] * dev_tensorData_Right[cell*numRightFields*contractionSize +
-        p*numRightFields + col];
-    }
-
-    dev_tensorResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = sum;
-
-    currentBlock += gridDim.x;
-  }
-}
-
-__global__
-void
-doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
-                                 const unsigned int numLeftFields,
-                                 const unsigned int numRightFields,
-                                 const unsigned int numPoints,
-                                 const unsigned int tens1,
-                                 const unsigned int tens2,
-                                 const float * const __restrict__ dev_tensorData_Left,
-                                 const float * const __restrict__ dev_tensorData_Right,
-                                 float * dev_tensorResults) {
-
-  extern __shared__ float sliceStorage[];
-
-  //const unsigned int blockSize = blockDim.x;
-  const unsigned int contractionSize = numPoints * tens1 * tens2;
-  const unsigned int threadRow = threadIdx.x / contractionSize;
-  const unsigned int col = threadIdx.x - (threadRow * contractionSize);
-
-  unsigned int currentBlock = blockIdx.x;
-  const unsigned int numBlocks = gridDim.x;
-
-  while (currentBlock < numBlocks) {
-    syncthreads();
-    const unsigned int cell = (currentBlock*2) / numLeftFields;
-    const unsigned int row = (currentBlock*2) - cell * numLeftFields;
-
-    if((cell < numberOfTensors) && (row < numLeftFields)) {
-      for (unsigned int p = col; p < contractionSize; p += blockDim.x) {
-        sliceStorage[p] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
-          row*contractionSize + p];
-        }
-      //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
-      syncthreads();
-      float sum = 0;
-      for (int p = 0; p < contractionSize; ++p) {
-        sum += sliceStorage[p + (threadRow*contractionSize)] * dev_tensorData_Right[cell*numRightFields*contractionSize +
-          p*numRightFields + col];
-        }
-
-        dev_tensorResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = sum;
-    }
-    currentBlock += gridDim.x;
-  }
-}
 __global__
 void
 doCudaTensors_Reduction_kernel(const unsigned int numberOfTensors,
@@ -835,43 +703,6 @@ private:
   KokkosFunctor_ClearCache();
 
 };
-
-template <class DeviceType, class KokkosTensorData,
-          class KokkosTensorResults>
-struct KokkosFunctor_Independent {
-
-  typedef DeviceType device_type;
-
-  const unsigned int _tensorSize;
-  KokkosTensorData _data_A;
-  KokkosTensorData _data_B;
-  KokkosTensorResults _results;
-
-  KokkosFunctor_Independent(const unsigned int tensorSize,
-                            KokkosTensorData data_A,
-                            KokkosTensorData data_B,
-                            KokkosTensorResults results) :
-    _tensorSize(tensorSize), _data_A(data_A), _data_B(data_B),
-    _results(results) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int tensorIndex) const {
-    double sum = 0;
-    for (unsigned int entryIndex = 0; entryIndex < _tensorSize;
-         ++entryIndex) {
-      sum +=
-        _data_A(tensorIndex, entryIndex) *
-        _data_B(tensorIndex, entryIndex);
-    }
-    _results(tensorIndex) = sum;
-  }
-
-private:
-  KokkosFunctor_Independent();
-
-};
-
 
 template<class DeviceType, class LeftViewType, class RightViewType, class
 OutputViewType>
