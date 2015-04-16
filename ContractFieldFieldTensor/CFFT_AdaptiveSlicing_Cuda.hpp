@@ -1,3 +1,10 @@
+/*
+ * This algorithm is identical to the one used in CFFT_AdaptiveSlicing_Kokkos, so for 
+ * information on how exactly the algorithm works please refer to that file, as the two
+ * approaches are the same except for minor syntax differences
+ */
+
+
 __global__
 void
 doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
@@ -12,7 +19,6 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
 
   extern __shared__ float sliceStorage[];
 
-  //const unsigned int blockSize = blockDim.x;
   const unsigned int contractionSize = numPoints * tens1 * tens2;
   const unsigned int threadRow = threadIdx.x / numLeftFields;
   const unsigned int col = threadIdx.x - (threadRow * numLeftFields);
@@ -30,7 +36,6 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
         sliceStorage[p + (threadRow*contractionSize)] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
           (row+threadRow)*contractionSize + p];
         }
-      //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
       syncthreads();
       float sum = 0;
       for (int p = 0; p < contractionSize; ++p) {
