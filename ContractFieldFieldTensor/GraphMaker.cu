@@ -285,8 +285,8 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
 
   //const unsigned int blockSize = blockDim.x;
   const unsigned int contractionSize = numPoints * tens1 * tens2;
-  const unsigned int threadRow = threadIdx.x / contractionSize;
-  const unsigned int col = threadIdx.x - (threadRow * contractionSize);
+  const unsigned int threadRow = threadIdx.x / numLeftFields;
+  const unsigned int col = threadIdx.x - (threadRow * numLeftFields);
 
   unsigned int currentBlock = blockIdx.x;
   const unsigned int numBlocks = gridDim.x;
@@ -298,8 +298,8 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
 
     if((cell < numberOfTensors) && (row < numLeftFields)) {
       for (unsigned int p = col; p < contractionSize; p += blockDim.x) {
-        sliceStorage[p] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
-          row*contractionSize + p];
+        sliceStorage[p + (threadRow*contractionSize)] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
+          (row+threadRow)*contractionSize + p];
         }
       //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
       syncthreads();
@@ -667,7 +667,7 @@ runCudaTeamTest(const CudaStyle cudaStyle,
                                    dev_tensorResults);
     } else if (cudaStyle == CudaStyle_AdaptiveSlicing) {
 
-      //THIS IS ALL WRONG RIGHT NOW
+      
       doCudaContractions_AdaptiveSlicing_kernel<<<numberOfSlicingBlocks,
         numberOfThreadsPerBlock,
         contractionSize * sizeof(float) * 2>>>(numberOfTensors,
