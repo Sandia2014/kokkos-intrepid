@@ -28,6 +28,7 @@ using std::array;
 
 #ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
+#include "ContractDataDataVectorFunctors.hpp"
 #endif // ENABLE_KOKKOS
 
 enum CudaStyle {CudaStyle_Independent,
@@ -409,76 +410,6 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 }
 #endif // RAW_CUDA
 
-
-
-#ifdef ENABLE_KOKKOS
-
-template <class DeviceType, class KokkosJunkVector>
-struct KokkosFunctor_ClearCache {
-
-  typedef size_t     value_type;
-  typedef DeviceType device_type;
-
-  KokkosJunkVector _junkDataToClearTheCache;
-
-  KokkosFunctor_ClearCache(KokkosJunkVector dev_junkDataToClearTheCache) :
-    _junkDataToClearTheCache(dev_junkDataToClearTheCache) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int index,
-                  value_type & junkDataCounter) const {
-    junkDataCounter += _junkDataToClearTheCache(index);
-  }
-
-private:
-  KokkosFunctor_ClearCache();
-
-};
-
-template <class DeviceType, class KokkosDotProductData,
-          class KokkosDotProductResults>
-struct KokkosFunctor_Independent {
-
-  typedef DeviceType device_type;
-
-  const unsigned int _numPoints;
-  const unsigned int _dimVec;
-  KokkosDotProductData _data_A;
-  KokkosDotProductData _data_B;
-  KokkosDotProductResults _results;
-
-  KokkosFunctor_Independent(const unsigned int numPoints,
-                            const unsigned int dimVec,
-                            KokkosDotProductData data_A,
-                            KokkosDotProductData data_B,
-                            KokkosDotProductResults results) :
-    _numPoints(numPoints), 
-    _dimVec(dimVec),
-    _data_A(data_A), _data_B(data_B),
-    _results(results) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int cl) const {
-
-    float tmpVal = 0;
-    for (int qp = 0; qp < _numPoints; qp++) {
-      for (int iVec = 0; iVec < _dimVec; iVec++) {
-        tmpVal += 
-          _data_A(cl, qp, iVec) *
-          _data_B(cl, qp, iVec);;
-      } // D-loop
-    } // P-loop
-    _results(cl) = tmpVal;
-    
-  }
-
-private:
-  KokkosFunctor_Independent();
-
-};
-
 template <class DeviceType, class KokkosDotProductData>
 double
 runKokkosTest(const unsigned int numberOfRepeats,
@@ -614,8 +545,6 @@ runKokkosTest(const unsigned int numberOfRepeats,
 
   return totalElapsedTime;
 }
-
-#endif // ENABLE_KOKKOS
 
 
 
