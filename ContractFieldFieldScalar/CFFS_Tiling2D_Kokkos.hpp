@@ -35,66 +35,66 @@ struct CFFS_Tiling_TeamFunctor {
     //NOTE: THIS WHOLE THING WORKS ASSUMING NUMLEFTFIELDS==NUMRIGHTFIELDS
     const unsigned int numBasis = numLeftFields;
 
-    //NOTE: This relies on contractionSize being a multiple of tileSize (16)
-    const unsigned int numberOfPointTiles = numPoints / tile_size;
-    //NOTE: This relies on numBasis being a multiple of tileSize(16)
-    const unsigned int numberOfBasisTiles = numBasis / tile_size;
+    const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
+    const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
-    const unsigned int numberOfTiles = numCells*numberOfBasisTiles*numberOfBasisTiles;
+    const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
 
     const unsigned int subRow = thread.team_rank() / tile_size;
-    const unsigned int subCol = thread.team_rank() - subRow * tile_size;
+    const unsigned int subCol = thread.team_rank()  - subRow * tile_size;
 
     unsigned int resultTileIndex = thread.league_rank();
 
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> left_tile(thread.team_shmem(), tile_size, tile_size);
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> right_tile(thread.team_shmem(), tile_size, tile_size);
+    Kokkos::View<float*, Kokkos::MemoryUnmanaged> tileStorage(thread.team_shmem(), 2 * tile_size * tile_size);
 
     while (resultTileIndex < numberOfTiles) {
 
-    const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
-    const unsigned int resultSubmatrixIndex =
-      resultTileIndex - resultMatrix * numberOfBasisTiles * numberOfBasisTiles;
+      const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
+      const unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles);
 
-    const unsigned int resultTileRow = resultSubmatrixIndex / numberOfBasisTiles;
-    const unsigned int resultTileCol = resultSubmatrixIndex -
-      resultTileRow * numberOfBasisTiles;
+      // calculate result tile indices
+      const unsigned int resultTileRow = resultSubmatrixIndex / numberOfBasisTiles;
+      const unsigned int resultTileCol = resultSubmatrixIndex  - resultTileRow * numberOfBasisTiles;
 
-    // calculate this threads actual output index
-    const unsigned int row = resultTileRow * tile_size + subRow;
-    const unsigned int col = resultTileCol * tile_size + subCol;
+      // calculate this threads actual output index
+      const unsigned int row = resultTileRow * tile_size + subRow;
+      const unsigned int col = resultTileCol * tile_size + subCol;
 
-    float sum = 0;
-    // for tileNumber in 0...numberOfTilesPerSide
-    for (unsigned int tileNumber = 0;
-        tileNumber < numberOfPointTiles; ++tileNumber) {
+      float sum = 0;
+      // for tileNumber in 0...numberOfTilesPerSide
+      for (unsigned int tileNumber = 0;
+          tileNumber < numberOfPointTiles; ++tileNumber) {
 
-      // load the left and right tiles into shared memory
-      if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints){
-        left_tile(subRow, subCol) = leftView(resultMatrix, row, tileNumber*tile_size + subCol);
+        // these are base indices into the shared memory
+        const unsigned int leftBaseIndex = subRow * tile_size;
+        const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
+
+        // load the left and right tiles into shared memory
+        if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
+          tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
+        else
+          tileStorage(thread.team_rank())  = 0.0;
+
+        if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis)
+          tileStorage(thread.team_rank() + (tile_size * tile_size)) =
+                   rightView(resultMatrix, tileNumber * tile_size + subRow, col);
+        else
+          tileStorage(thread.team_rank() + (tile_size * tile_size)) = 0.0;
+
+        // make sure everyone's finished loading their pieces of the tiles
+        thread.team_barrier();
+        for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
+          sum +=
+            tileStorage(leftBaseIndex + dummy) *
+            tileStorage(rightBaseIndex + dummy * tile_size);
+        }
+        thread.team_barrier();
       }
-      else {
-        left_tile(subRow,subCol) = 0.0;
-      }
-      if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis) {
-        right_tile(subRow, subCol) = rightView(resultMatrix, tileNumber*tile_size + subRow, col);
-      }
-      else {
-        right_tile(subRow,subCol) = 0.0;
-      }
+      if (resultMatrix < numCells && row < numBasis && col < numBasis)
+        outputView(resultMatrix, row, col) = sum;
 
-      // make sure everyone's finished loading their pieces of the tiles
-      thread.team_barrier();
-
-      for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
-        sum += left_tile(subRow, dummy) * right_tile(dummy, subCol);
-      }
-      thread.team_barrier();
+      resultTileIndex += thread.league_size();
     }
-    if (resultMatrix < numCells && row < numBasis && col < numBasis)
-      outputView(resultMatrix, row, col) = sum;
-    resultTileIndex += thread.league_size();
-  }
 
   }
 

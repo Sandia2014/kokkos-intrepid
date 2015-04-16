@@ -1438,12 +1438,13 @@ runKokkosTilingTest(const unsigned int numberOfContractions,
           tile_size);
 
 
-  const unsigned int numBlocks = numberOfContractions *
-    (((numLeftFields - 1)/tile_size) + 1) * (((numRightFields -1)/tile_size) + 1);
+  const unsigned int numberOfTilingBlocks =
+      min(unsigned(1e4),
+          (unsigned int)ceil(numberOfContractions*numRightFields*numRightFields/(tile_size*tile_size)));
 
   const team_policy tiling_policy(
-      numBlocks,
-      tile_size*tile_size );
+              numberOfTilingBlocks,
+              tile_size*tile_size );
 
 
   timespec tic;
