@@ -1216,7 +1216,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{160, 320, 1600, 6400, 16000}};
+    {{160, 320, 1600, 6400}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e8}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
@@ -1644,7 +1644,7 @@ int main(int argc, char* argv[]) {
             dev_tensorResults,
             &tensorResults);
       }
-
+	/*
       {
         //HARDCODED TO NUMRIGHTFIELDS*2 FOR NOW
         //In theory this should be dynamically adjusted to be around
@@ -1681,7 +1681,7 @@ int main(int argc, char* argv[]) {
             &tensorResults);
 
       }
-
+	*/
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda slicing> **********************
       // ===============================================================
@@ -1855,12 +1855,6 @@ int main(int argc, char* argv[]) {
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
 #endif
 
-#ifdef ENABLE_KOKKOS
-  const unsigned int numberOfMethods = 7;
-#else
-  const unsigned int numberOfMethods = 5;
-#endif
-
   printf("done writing\n");
 
   const size_t junkDataSum =
@@ -1889,7 +1883,7 @@ int main(int argc, char* argv[]) {
   Kokkos::finalize();
 #endif
     exit(1);
-  }
+  
 
   return 0;
 }
