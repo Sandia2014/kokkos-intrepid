@@ -1686,9 +1686,7 @@ struct CFFS_Tiling_TeamFunctor_1D {
   //NOTE: THIS WHOLE THING WORKS ASSUMING NUMLEFTFIELDS==NUMRIGHTFIELDS
   const unsigned int numBasis = numLeftFields;
 
-  //NOTE: This relies on contractionSize being a multiple of tileSize (16)
   const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
-  //NOTE: This relies on numBasis being a multiple of tileSize(16)
   const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
   const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
@@ -2048,7 +2046,6 @@ runKokkosTilingTest_1D(const unsigned int numberOfContractions,
 
 
   /*
-
   // copy the data into the device views and ship them over
   for (unsigned int contractionIndex = 0;
   contractionIndex < numberOfContractions; ++contractionIndex) {
@@ -2091,12 +2088,12 @@ runKokkosTilingTest_1D(const unsigned int numberOfContractions,
           dev_kokkosContractionResults,
           tile_size);
 
-  const unsigned int numberOfTilingBlocks =
-    min(unsigned(1e4),
-            (unsigned int)ceil(numberOfContractions*numRightFields*numRightFields/(tile_size*tile_size)));
+  const unsigned int targetBlocks = numberOfContractions * (((numRightFields - 1)/tile_size) + 1) * (((numLeftFields - 1)/tile_size) + 1);
+
+  const unsigned int numberOfTilingBlocks = min(unsigned(1e4),targetBlocks);
 
   const team_policy tiling_policy(
-      numberOfTilingBlocks,
+      targetBlocks,
       tile_size*tile_size );
 
 
