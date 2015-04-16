@@ -866,7 +866,6 @@ private:
 };
 
 
-
 template <class DeviceType, class KokkosContractionData>
 double
 runKokkosTest(const unsigned int numberOfContractions,
@@ -943,7 +942,6 @@ runKokkosTest(const unsigned int numberOfContractions,
 
 
   /*
-
   // copy the data into the device views and ship them over
   for (unsigned int contractionIndex = 0;
        contractionIndex < numberOfContractions; ++contractionIndex) {
@@ -1044,7 +1042,6 @@ runKokkosTest(const unsigned int numberOfContractions,
 
   return totalElapsedTime;
 }
-
 
 #if 0
 template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
@@ -1453,7 +1450,6 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
 
 
   /*
-
   // copy the data into the device views and ship them over
   for (unsigned int contractionIndex = 0;
   contractionIndex < numberOfContractions; ++contractionIndex) {
@@ -2806,7 +2802,6 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults);
       }
-
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2823,7 +2818,6 @@ int main(int argc, char* argv[]) {
               memorySize,
               contractionData_LayoutRight_Right,
               contractionData_LayoutRight_Left,
-
               correctResults,
               string("Kokkos Tiling"),
               clearCacheStyle,
@@ -2839,7 +2833,7 @@ int main(int argc, char* argv[]) {
                 DeviceType>                   KokkosContractionData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
-        kokkosTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+        kokkosTilingTimesMatrix1D[contractionSizeIndex][memorySizeIndex] =
           runKokkosTilingTest_1D<DeviceType,
           KokkosContractionData>(numberOfContractions,
               numberOfRepeats,
