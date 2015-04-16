@@ -48,14 +48,14 @@ struct CFFS_AdaptiveSlicing_TeamFunctor {
       const unsigned int cell = (currentBlock*2) / numLeftFields;
       const unsigned int row = (currentBlock*2) - cell * numLeftFields;
 
-      if((cell < numberOfTensors) && ((row+threadRow) < numLeftFields)) {
+      if((cell < numCells) && ((row+threadRow) < numLeftFields)) {
         for (unsigned int p = col; p < contractionSize; p += (blockDim.x/2)) {
           const unsigned int pointIndex = p / (tens1*tens2);
           const unsigned int pointMod = p - (pointIndex * (tens1*tens2));
           const unsigned int tens1Index = pointMod / tens2;
           const unsigned int tens2Index = pointMod - (tens2 * tens1Index);
           sliceStorage(p + (threadRow*contractionSize)) =
-                dev_tensorData_Left(cell, row+threadRow, pointIndex, tens1Index,tens2Index);
+                leftView(cell, row+threadRow, pointIndex, tens1Index,tens2Index);
           }
         //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
         thread.team_barrier();
@@ -67,10 +67,10 @@ struct CFFS_AdaptiveSlicing_TeamFunctor {
           const unsigned int tens2Index = pointMod - (tens2 * tens1Index);
 
           sum += sliceStorage(p + (threadRow*contractionSize)) *
-            dev_tensorData_Right(cell,pointIndex,tens1Index,tens2Index,col);
+            rightView(cell,pointIndex,tens1Index,tens2Index,col);
           }
 
-          dev_tensorResults(cell,row+threadRow,col) = sum;
+          outputView(cell,row+threadRow,col) = sum;
       }
 
   }
