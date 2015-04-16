@@ -45,8 +45,8 @@ struct CFFS_Tiling_TeamFunctor {
 
     unsigned int resultTileIndex = thread.league_rank();
 
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> tileStorageLeft(thread.team_shmem(), tile_size * tile_size);
-    Kokkos::View<float**, Kokkos::MemoryUnmanaged> tileStorageRight(thread.team_shmem(), tile_size * tile_size);
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> LeftTileStorage(thread.team_shmem(), tile_size, tile_size);
+    Kokkos::View<float**, Kokkos::MemoryUnmanaged> RightTileStorage(thread.team_shmem(), tile_size, tile_size);
 
     while (resultTileIndex < numberOfTiles) {
 
@@ -67,8 +67,8 @@ struct CFFS_Tiling_TeamFunctor {
           tileNumber < numberOfPointTiles; ++tileNumber) {
 
         // these are base indices into the shared memory
-        const unsigned int leftBaseIndex = subRow * tile_size;
-        const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
+        //const unsigned int leftBaseIndex = subRow * tile_size;
+        //const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
 
         // load the left and right tiles into shared memory
         if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
