@@ -897,6 +897,20 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
 
   const team_policy slicing_policy(
       numberOfContractions*numLeftFields , numRightFields );
+
+      timespec tic;
+      double totalElapsedTime = 0;
+      for (unsigned int repeatIndex = 0;
+          repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+        *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+        if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+              repeatIndex == 1) ||
+            clearCacheStyle == ClearCacheAfterEveryRepeat) {
+          tic = getTimePoint();
+        }
+
+        // actually do the calculation
+        Kokkos::parallel_for(slicing_policy, contractionFunctor);
   }
   else {
     CFFS_AdaptiveSlicing_TeamFunctor<KokkosContractionData,
@@ -914,21 +928,23 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
 
     const team_policy slicing_policy(
         numberOfContractions*numLeftFields/2 , numRightFields*2 );
+
+        timespec tic;
+        double totalElapsedTime = 0;
+        for (unsigned int repeatIndex = 0;
+            repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+          *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+          if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+                repeatIndex == 1) ||
+              clearCacheStyle == ClearCacheAfterEveryRepeat) {
+            tic = getTimePoint();
+          }
+
+          // actually do the calculation
+          Kokkos::parallel_for(slicing_policy, contractionFunctor);
   }
 
-  timespec tic;
-  double totalElapsedTime = 0;
-  for (unsigned int repeatIndex = 0;
-      repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
-    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
-    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
-          repeatIndex == 1) ||
-        clearCacheStyle == ClearCacheAfterEveryRepeat) {
-      tic = getTimePoint();
-    }
 
-    // actually do the calculation
-    Kokkos::parallel_for(slicing_policy, contractionFunctor);
 
     // wait for this repeat's results to finish
     Kokkos::fence();
