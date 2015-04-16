@@ -533,9 +533,9 @@ runCudaTeamTest(const CudaStyle cudaStyle,
                                    dev_tensorResults);
     } else if (cudaStyle == CudaStyle_AdaptiveSlicing) {
 
-      //THIS IS ALL WRONG RIGHT NOW
-      doCudaContractions_AdaptiveSlicing_kernel<<<numberOfSlicingBlocks/2,
-        numberOfThreadsPerBlock*2,
+
+      doCudaContractions_AdaptiveSlicing_kernel<<<numberOfSlicingBlocks,
+        numberOfThreadsPerBlock,
         contractionSize * sizeof(float) * 2>>>(numberOfTensors,
                                    numLeftFields,
                                    numRightFields,
@@ -1737,7 +1737,7 @@ int main(int argc, char* argv[]) {
             dev_tensorResults,
             &tensorResults);
       }
-	/*
+
       {
         //HARDCODED TO NUMRIGHTFIELDS*2 FOR NOW
         //In theory this should be dynamically adjusted to be around
@@ -1774,7 +1774,7 @@ int main(int argc, char* argv[]) {
             &tensorResults);
 
       }
-	*/
+
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda slicing> **********************
       // ===============================================================
