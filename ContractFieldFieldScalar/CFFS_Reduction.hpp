@@ -1,4 +1,12 @@
 
+#ifndef KOKKOS_INCLUDES
+#define KOKKOS_INCLUDES
+#include <Kokkos_Core.hpp>
+typedef Kokkos::DefaultExecutionSpace Device;
+typedef Kokkos::HostSpace::execution_space Host;
+typedef Kokkos::TeamPolicy<Device> team_policy;
+typedef team_policy::member_type team_member;
+#endif
 
 
 template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
