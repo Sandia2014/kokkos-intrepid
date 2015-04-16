@@ -25,10 +25,15 @@ using std::array;
 
 // header file for openmp
 #include <omp.h>
-#include "CFFT_Tiling.hpp"
-#ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
-#endif // ENABLE_KOKKOS
+
+
+typedef Kokkos::DefaultExecutionSpace Device;
+typedef Kokkos::HostSpace::execution_space Host;
+typedef Kokkos::TeamPolicy<Device> team_policy;
+typedef team_policy::member_type team_member;
+#include "CFFT_Tiling.hpp"
+
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
