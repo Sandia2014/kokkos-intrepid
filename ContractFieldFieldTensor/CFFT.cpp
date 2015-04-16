@@ -808,10 +808,6 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 
 
 
-
-
-#ifdef ENABLE_KOKKOS
-
 template <class DeviceType, class KokkosJunkVector>
 struct KokkosFunctor_ClearCache {
 
