@@ -236,10 +236,19 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
 
       // load the left and right tiles into shared memory
       syncthreads();
-      tileStorage[threadIdx.x]              = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
-        + row * contractionSize + tileNumber * tileSize + subCol];
-      tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
-        + (tileNumber * tileSize + subRow) * numBasis + col];
+
+      if (resultMatrix < numCells && row < numBasis && tileNumber*tileSize + subCol < contractionSize)
+        tileStorage[threadIdx.x] = dev_contractionData_Left[resultMatrix * numBasis * contractionSize
+                                   + row * contractionSize + tileNumber * tileSize + subCol];
+      else
+        tileStorage[threadIdx.x] = 0.0;
+
+
+      if (resultMatrix < numCells && tileNumber * tileSize + subRow < contractionSize && col < numBasis)
+        tileStorage[threadIdx.x + blockDim.x] = dev_contractionData_Right[resultMatrix * numBasis * contractionSize
+                                                 + (tileNumber * tileSize + subRow) * numBasis + col];
+      else
+        tileStorage[threadIdx.x + blockDim.x] = 0.0;
       // make sure everyone's finished loading their pieces of the tiles
       syncthreads();
 
@@ -249,7 +258,8 @@ doCudaContractions_Tiling_kernel(const unsigned int numCells,
           tileStorage[leftBaseIndex + dummy] *
           tileStorage[rightBaseIndex + dummy * tileSize];
       }
-      dev_contractionResults[resultIndex] += sum;
+      if (resultMatrix < numCells && row < numBasis && col < numBasis)
+        dev_contractionResults[resultIndex] += sum;
     }
     resultTileIndex += gridDim.x;
   }
@@ -1050,15 +1060,15 @@ struct CFFS_Reduction_TeamFunctor {
 
 	CFFS_Reduction_TeamFunctor(unsigned int _numCells, unsigned int _numLeftFields,
 			unsigned int _numRightFields, unsigned int _numPoints,
-			LeftInputViewType _leftView, 
-			RightInputViewType _rightView, 
+			LeftInputViewType _leftView,
+			RightInputViewType _rightView,
 			OutputViewType _outputView) :
-		numCells(_numCells), 
-		numLeftFields(_numLeftFields), 
-		numRightFields(_numRightFields), 
+		numCells(_numCells),
+		numLeftFields(_numLeftFields),
+		numRightFields(_numRightFields),
 		numPoints(_numPoints),
-		leftView(_leftView), 
-		rightView(_rightView), 
+		leftView(_leftView),
+		rightView(_rightView),
 		outputView(_outputView) {
 			// Nothing to do
 		}
@@ -1070,7 +1080,7 @@ struct CFFS_Reduction_TeamFunctor {
 			const unsigned int threadsPerTeam = thread.team_size();
 
 			/* This requires the outputView to be all 0s beforehand */
-			if (numPoints <= threadsPerTeam/2) {	
+			if (numPoints <= threadsPerTeam/2) {
 				int myID = thread.league_rank()*(threadsPerTeam/numPoints)+thread.team_rank()/numPoints;
 				int myMatrix = myID / (numLeftFields * numRightFields);
 				int matrixIndex = myID - (myMatrix * (numLeftFields * numRightFields));
@@ -1079,7 +1089,7 @@ struct CFFS_Reduction_TeamFunctor {
 
 				int pointIndex = thread.team_rank() % numPoints;
 
-				float mult = leftView(myMatrix, matrixRow, pointIndex) 
+				float mult = leftView(myMatrix, matrixRow, pointIndex)
 					* rightView(myMatrix, pointIndex, matrixCol);
 
 				Kokkos::atomic_fetch_add(&outputView(myMatrix, matrixRow, matrixCol), mult);
@@ -1094,15 +1104,15 @@ struct CFFS_Reduction_TeamFunctor {
 				int matrixCol = matrixIndex - (matrixRow * numRightFields);
 
 
-				Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()), 
+				Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, thread.team_size()),
 						[&] (const unsigned int& i, float& sum) {
 						int j = i;
 						while (j < numPoints) {
-						sum += leftView(myMatrix, matrixRow, j) 
+						sum += leftView(myMatrix, matrixRow, j)
 						* rightView(myMatrix, j, matrixCol);
 						j += thread.team_size();
 						}
-						}, 
+						},
 						sum);
 				outputView(myMatrix, matrixRow, matrixCol) = sum;
 			}
@@ -1719,7 +1729,7 @@ struct CFFS_Tiling_TeamFunctor_1D {
       // load the left and right tiles into shared memory
       if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
         tileStorage(thread.team_rank())  = leftView(resultMatrix, row, tileNumber * tile_size + subCol);
-      else 
+      else
         tileStorage(thread.team_rank())  = 0.0;
 
       if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis)
@@ -2308,7 +2318,7 @@ int main(int argc, char* argv[]) {
 
     // allocate and initialize the largest amount of memory we'll need, then on
     //  each size we'll just use subsets of this memory.
-    
+
 	const unsigned int maxNumberOfContractions = memorySizes.back() / 4 /sizeof(float) / (contractionSize*numBasis);
 
 	/*
@@ -2407,7 +2417,7 @@ int main(int argc, char* argv[]) {
 			const unsigned int memorySize = memorySizes[memorySizeIndex];
 
 			const unsigned int numberOfContractions =
-				max((unsigned int) (memorySize / 4 / sizeof(float) / (contractionSize * numBasis)), (unsigned int) 1); 
+				max((unsigned int) (memorySize / 4 / sizeof(float) / (contractionSize * numBasis)), (unsigned int) 1);
 			/*const unsigned int numberOfContractions =
 				max((unsigned int) (memorySize / sizeof(float) / (2*contractionSize * numBasis + numBasis*numBasis)), (unsigned int) 1); */
 			/*
@@ -2587,10 +2597,8 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
-      
-      {
-        const unsigned int numberOfThreadsPerBlock = numBasis;
 
+      const unsigned int numberOfThreadsPerBlock = numBasis;
         cudaSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTeamTest(CudaStyle_Slicing,
                       numberOfThreadsPerBlock,
@@ -2613,9 +2621,9 @@ int main(int argc, char* argv[]) {
                       &contractionResults,
                       tile_size);
 
-      }/*
+      }
       {
-        const unsigned int numberOfThreadsPerBlock = 256;
+        const unsigned int numberOfThreadsPerBlock = tile_size*tile_size;
 
         cudaTilingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTeamTest(CudaStyle_Tiling,
@@ -2640,7 +2648,7 @@ int main(int argc, char* argv[]) {
                       tile_size);
 
       }
-      */
+
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do cuda independent> **********************
       // ===============================================================
@@ -2772,7 +2780,7 @@ int main(int argc, char* argv[]) {
                                               &totalNumberOfRepeats,
                                               &contractionResults);
 
-      
+
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
@@ -2798,7 +2806,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults);
       }
-     
+
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2815,7 +2823,7 @@ int main(int argc, char* argv[]) {
               memorySize,
               contractionData_LayoutRight_Right,
               contractionData_LayoutRight_Left,
-	      
+
               correctResults,
               string("Kokkos Tiling"),
               clearCacheStyle,
