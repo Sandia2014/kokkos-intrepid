@@ -2597,7 +2597,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
-
+      {
       const unsigned int numberOfThreadsPerBlock = numBasis;
         cudaSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
           runCudaTeamTest(CudaStyle_Slicing,
