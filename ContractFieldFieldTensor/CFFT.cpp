@@ -759,6 +759,263 @@ struct contractFieldFieldTensorFunctor {
 
 };
 
+template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
+struct CFFS_Slicing_TeamFunctor {
+  unsigned int numCells;
+  unsigned int numLeftFields;
+  unsigned int numRightFields;
+  unsigned int numPoints;
+  unsigned int tens1;
+  unsigned int tens2;
+  LeftInputViewType leftView;
+  RightInputViewType rightView;
+  OutputViewType outputView;
+
+
+  CFFS_Slicing_TeamFunctor(unsigned int _numCells,
+      unsigned int _numLeftFields,
+      unsigned int _numRightFields,
+      unsigned int _numPoints,
+      unsigned int _tens1,
+      unsigned int _tens2,
+      LeftInputViewType _leftView,
+      RightInputViewType _rightView,
+      OutputViewType _outputView) :
+    numCells(_numCells),
+    numLeftFields(_numLeftFields),
+    numRightFields(_numRightFields),
+    numPoints(_numPoints),
+    tens1(_tens1),
+    tens2(_tens2),
+    leftView(_leftView),
+    rightView(_rightView),
+    outputView(_outputView) {
+      // Nothing to do
+    }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator() (const team_member & thread) const {
+    int r = thread.team_rank();
+    int c = thread.league_rank() / numLeftFields;
+    int l = thread.league_rank() - c * numLeftFields;
+
+    Kokkos::View<float*, Kokkos::MemoryUnmanaged> shared_slice(thread.team_shmem(), numPoints);
+    for (int p = thread.team_rank(); p < numPoints*tens1*tens2; p += thread.team_size()) {
+      const unsigned int pointIndex = p / (tens1*tens2);
+      const unsigned int pointMod = p - (pointIndex * (tens1*tens2));
+      const unsigned int tens1Index = pointMod / tens2;
+      const unsigned int tens2Index = pointMod - (tens2 * tens1Index);
+
+      shared_slice(p) = leftView(c, l, pointIndex,tens1Index,tens2Index );
+    }
+    thread.team_barrier();
+
+    float sum = 0;
+    for (int p = 0; p < numPoints*tens1*tens2; ++p) {
+      const unsigned int pointIndex = p / (tens1*tens2);
+      const unsigned int pointMod = p - (pointIndex * (tens1*tens2));
+      const unsigned int tens1Index = pointMod / tens2;
+      const unsigned int tens2Index = pointMod - (tens2 * tens1Index);
+      sum += shared_slice(p) * rightView(c, pointIndex, tens1Index, tens2Index, r);
+    }
+    outputView(c, l, r) = sum;
+
+  }
+
+  size_t team_shmem_size( int team_size ) const {
+    return sizeof(float) * numPoints * tens1 * tens2;
+  }
+};
+
+// I believe this fails when r > 1024 because it tries
+// to make a team size that is too big.
+template <class DeviceType, class KokkosContractionData>
+double
+runKokkosSlicingTest(const unsigned int numberOfContractions,
+    const unsigned int numberOfRepeats,
+    const unsigned int numLeftFields,
+    const unsigned int numRightFields,
+    const unsigned int numPoints,
+    const unsigned int tens1,
+    const unsigned int tens2,
+    const unsigned int memorySize,
+    const vector<float> & contractionData_LayoutRight_Right,
+    const vector<float> & contractionData_LayoutRight_Left,
+    const vector<float> & correctResults,
+    const string & kokkosFlavor,
+    const ClearCacheStyle clearCacheStyle,
+    const vector<int> & junkDataToClearTheCache,
+    size_t * junkDataCounter,
+    unsigned int * const totalNumberOfRepeats,
+    vector<float> * contractionResults) {
+
+  const unsigned int junkDataSize = junkDataToClearTheCache.size();
+
+  typedef typename KokkosContractionData::HostMirror     KokkosContractionData_Host;
+  typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+          DeviceType>              KokkosContractionResults;
+  typedef typename KokkosContractionResults::HostMirror  KokkosContractionResults_Host;
+  typedef Kokkos::View<int*, DeviceType>                KokkosJunkVector;
+  typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
+
+  const unsigned int numPoints = contractionSize;
+
+
+
+  KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
+      numberOfContractions,
+      numPoints,
+      numRightFields);
+  KokkosContractionData_Host kokkosContractionData_Right =
+    Kokkos::create_mirror_view(dev_kokkosContractionData_Right);
+
+  KokkosContractionData dev_kokkosContractionData_Left("kokkos data B",
+      numberOfContractions,
+      numLeftFields,
+      numPoints);
+  KokkosContractionData_Host kokkosContractionData_Left =
+    Kokkos::create_mirror_view(dev_kokkosContractionData_Left);
+
+  KokkosContractionResults dev_kokkosContractionResults("kokkos dot product results",
+      numberOfContractions,
+      numLeftFields,
+      numRightFields);
+  KokkosContractionResults_Host kokkosContractionResults =
+    Kokkos::create_mirror_view(dev_kokkosContractionResults);
+
+  KokkosJunkVector dev_kokkosJunkDataToClearTheCache("kokkos junk data to clear cache",
+      junkDataSize);
+  KokkosJunkVector_Host kokkosJunkDataToClearTheCache =
+    Kokkos::create_mirror_view(dev_kokkosJunkDataToClearTheCache);
+
+
+
+  for (int cl = 0; cl < numberOfContractions; ++cl) {
+    for (int qp = 0; qp < numPoints; ++qp) {
+      for(int iTens1 = 0; iTens1 < tens1; ++iTens1) {
+        for(int iTens2 = 0; iTens2 < tens2; ++iTens2) {
+          for(int rbf = 0; rbf < numRightFields; ++rbf) {
+            kokkosContractionData_Right(cl, qp, iTens1, iTens2, rbf) =
+              contractionData_LayoutRight_Right.at(cl*numRightFields*numPoints*tens1*tens2
+                + rbf*numPoints*tens1*tens2 + qp*tens1*tens2+iTens1*tens2+iTens2);
+            }
+            for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+              kokkosContractionData_Left(cl, lbf, qp, iTens1, iTens2) =
+              contractionData_LayoutRight_Left.at(cl*numLeftFields*numPoints*tens1*tens2
+                + lbf*numPoints*tens1*tens2 + qp*tens1*tens2+iTens1*tens2+iTens2);
+          }
+        }
+      }
+    }
+  }
+
+
+
+  /*
+  // copy the data into the device views and ship them over
+  for (unsigned int contractionIndex = 0;
+  contractionIndex < numberOfContractions; ++contractionIndex) {
+  for (unsigned int entryIndex = 0;
+  entryIndex < contractionSize; ++entryIndex) {
+  kokkosContractionData_Right(contractionIndex, entryIndex) =
+  contractionData_LayoutRight_Right[contractionIndex * contractionSize +
+  entryIndex];
+  kokkosContractionData_Left(contractionIndex, entryIndex) =
+  contractionData_LayoutRight_Left[contractionIndex * contractionSize +
+  entryIndex];
+  }
+  }*/
+  Kokkos::deep_copy(dev_kokkosContractionData_Right, kokkosContractionData_Right);
+  Kokkos::deep_copy(dev_kokkosContractionData_Left, kokkosContractionData_Left);
+
+  // copy the data into the device views and ship them over
+  for (unsigned int junkDataIndex = 0;
+      junkDataIndex < junkDataSize; ++junkDataIndex) {
+    kokkosJunkDataToClearTheCache(junkDataIndex) =
+      junkDataToClearTheCache[junkDataIndex];
+  }
+  Kokkos::deep_copy(dev_kokkosJunkDataToClearTheCache, kokkosJunkDataToClearTheCache);
+
+  KokkosFunctor_ClearCache<DeviceType,
+    KokkosJunkVector>
+      kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
+
+
+  // breaking formatting convention because holy freak that's long
+  CFFS_Slicing_TeamFunctor<KokkosContractionData,
+    KokkosContractionData,
+    KokkosContractionResults>
+      contractionFunctor(numberOfContractions,
+          numLeftFields,
+          numRightFields,
+          numPoints,
+          tens1,
+          tens2,
+          dev_kokkosContractionData_Left,
+          dev_kokkosContractionData_Right,
+          dev_kokkosContractionResults);
+
+  const team_policy slicing_policy(
+      numberOfContractions*numLeftFields , numRightFields );
+
+
+  timespec tic;
+  double totalElapsedTime = 0;
+  for (unsigned int repeatIndex = 0;
+      repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
+    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+          repeatIndex == 1) ||
+        clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      tic = getTimePoint();
+    }
+
+    // actually do the calculation
+    Kokkos::parallel_for(slicing_policy, contractionFunctor);
+
+    // wait for this repeat's results to finish
+    Kokkos::fence();
+
+
+    if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      const float elapsedTime = getElapsedTime(tic, toc);
+      totalElapsedTime += elapsedTime;
+
+      // attempt to scrub all levels of cache
+      size_t partialJunkDataCounter = 0;
+      Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+          partialJunkDataCounter);
+      *junkDataCounter += partialJunkDataCounter;
+    }
+  }
+  if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+    const timespec toc = getTimePoint();
+    totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+  }
+  // copy over the results from the device to the host
+  Kokkos::deep_copy(kokkosContractionResults, dev_kokkosContractionResults);
+  for (unsigned int contractionIndex = 0;
+      contractionIndex < numberOfContractions; ++contractionIndex) {
+    for (int lbf = 0; lbf < numLeftFields; lbf++) {
+      for (int rbf = 0; rbf < numRightFields; rbf++) {
+        contractionResults->at(contractionIndex*numLeftFields*numRightFields+lbf*numRightFields+rbf) =
+          kokkosContractionResults(contractionIndex, lbf, rbf);
+      }
+    }
+  }
+
+  // check the results
+  checkAnswer(correctResults, *contractionResults,
+      numberOfContractions*numLeftFields*numRightFields, memorySize,
+      kokkosFlavor);
+  // scrub the results
+  std::fill(contractionResults->begin(),
+      contractionResults->end(),
+      std::numeric_limits<float>::quiet_NaN());
+
+  return totalElapsedTime;
+}
 
 template <class DeviceType, class InputViewType>
 double
@@ -1199,6 +1456,12 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     kokkosCudaTilingTimesMatrix(numberOfTensorSizes,
                                      vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    kokkosSlicingTimesMatrix(numberOfContractionSizes,
+                                   	 vector<float>(numberOfMemorySizes, 0));
+
+
 #endif
 
 
@@ -1702,6 +1965,32 @@ int main(int argc, char* argv[]) {
                              DeviceType>                   KokkosData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
+        kokkosSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosSlicingTest<DeviceType,
+          KokkosContractionData>(numberOfContractions,
+              numberOfRepeats,
+              numLeftFields,
+              numRightFields,
+              numPoints,
+              tens1,
+              tens2,
+              memorySize,
+              tensorData_LayoutRight_A,
+              tensorData_LayoutRight_B,
+              correctResults,
+              string("Kokkos Slicing"),
+              clearCacheStyle,
+              junkDataToClearTheCache,
+              &junkDataCounter,
+              &totalNumberOfRepeats,
+              &contractionResults);
+      }
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
         kokkosCudaTilingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
           runKokkosTest<DeviceType,
                         KokkosData>(numberOfTensors,
@@ -1781,6 +2070,9 @@ int main(int argc, char* argv[]) {
 
   writeTimesMatrixToFile(kokkosCudaTilingTimesMatrix,
                          prefix + string("kokkosCudaTilingTimes") + suffix);
+
+  writeTimesMatrixToFile(kokkosSlicingTimesMatrix,
+                         prefix + string("kokkosSlicingTimes") + suffix);
 #endif
 
   printf("done writing\n");
