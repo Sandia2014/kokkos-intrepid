@@ -1150,6 +1150,35 @@ runKokkosTest(const unsigned int numCells,
     }
 
   }
+  // copy over the results from the device to the host
+  Kokkos::deep_copy(kokkosResults, dev_kokkosResults);
+  /*
+  for (unsigned int tensorIndex = 0;
+       tensorIndex < numCells; ++tensorIndex) {
+    results->at(tensorIndex) =
+      kokkosResults(tensorIndex);
+  }
+  */
+
+  for (int i = 0; i < numCells; i++) {
+    for (int j = 0; j < numLeftFields; j++) {
+      for (int k = 0; k < numRightFields; k++) {
+        results->at(i*numLeftFields*numRightFields + j*numRightFields + k) =
+          kokkosResults(i, j, k);
+      }
+    }
+  }
+  // check the results
+  checkAnswer(correctResults, *results,
+              numCells*numLeftFields*numRightFields, memorySize,
+              kokkosFlavor);
+
+
+  // scrub the results
+  std::fill(results->begin(),
+            results->end(),
+            std::numeric_limits<float>::quiet_NaN());
+  return totalElapsedTime;
 }
 
 
