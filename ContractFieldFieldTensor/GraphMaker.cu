@@ -296,8 +296,8 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
     const unsigned int cell = (currentBlock*2) / numLeftFields;
     const unsigned int row = (currentBlock*2) - cell * numLeftFields;
 
-    if((cell < numberOfTensors) && (row < numLeftFields)) {
-      for (unsigned int p = col; p < contractionSize; p += blockDim.x) {
+    if((cell < numberOfTensors) && ((row+threadRow) < numLeftFields)) {
+      for (unsigned int p = col; p < contractionSize; p += (blockDim.x/2)) {
         sliceStorage[p + (threadRow*contractionSize)] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
           (row+threadRow)*contractionSize + p];
         }
@@ -309,7 +309,7 @@ doCudaContractions_AdaptiveSlicing_kernel(const unsigned int numberOfTensors,
           p*numRightFields + col];
         }
 
-        dev_tensorResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = sum;
+        dev_tensorResults[cell*numRightFields*numLeftFields + (row+threadRow)*numRightFields + col] = sum;
     }
     currentBlock += gridDim.x;
   }
@@ -1231,7 +1231,7 @@ int main(int argc, char* argv[]) {
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
     {{1944}};
-  const array<float, 2> memorySizeExtrema = {{1e7, 1e9}};
+  const array<float, 2> memorySizeExtrema = {{1e7, 1e8}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const ClearCacheStyle clearCacheStyle =
@@ -1634,7 +1634,7 @@ int main(int argc, char* argv[]) {
                       dev_tensorResults,
                       &tensorResults);
 
-      }
+      }*/
       {
       const unsigned int numberOfThreadsPerBlock = numRightFields;
 
@@ -1664,7 +1664,7 @@ int main(int argc, char* argv[]) {
             &tensorResults);
 
       }
-*/
+
       {
         //HARDCODED TO NUMRIGHTFIELDS*2 FOR NOW
         //In theory this should be dynamically adjusted to be around
