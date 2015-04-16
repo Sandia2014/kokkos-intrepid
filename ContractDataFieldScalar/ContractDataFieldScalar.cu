@@ -29,6 +29,7 @@ using std::array;
 #define ENABLE_KOKKOS
 #ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
+#include "ContractDataFieldScalarFunctors.hpp"
 #endif // ENABLE_KOKKOS
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
@@ -123,73 +124,6 @@ checkAnswer(const vector<float> & correctResults,
 
 #ifdef ENABLE_KOKKOS
 
-template <class DeviceType, class KokkosJunkVector>
-struct KokkosFunctor_ClearCache {
-
-  typedef size_t     value_type;
-  typedef DeviceType device_type;
-
-  KokkosJunkVector _junkDataToClearTheCache;
-
-  KokkosFunctor_ClearCache(KokkosJunkVector dev_junkDataToClearTheCache) :
-    _junkDataToClearTheCache(dev_junkDataToClearTheCache) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int index,
-                  value_type & junkDataCounter) const {
-    junkDataCounter += _junkDataToClearTheCache(index);
-  }
-
-private:
-  KokkosFunctor_ClearCache();
-
-};
-
-
-template<class DeviceType, class DataViewType, class FieldViewType, class OutputViewType>
-struct ContractDataFieldScalarFunctor {
-  typedef DeviceType device_type;
-  FieldViewType _inputFields;
-  DataViewType _inputData;
-  OutputViewType _output;
-  int _numPoints;
-  int _numFields;
-
-  ContractDataFieldScalarFunctor(int numPoints,
-      int numFields,
-      FieldViewType inputFields,
-      DataViewType inputData,
-      OutputViewType output) :
-    _inputFields(inputFields),
-    _inputData(inputData),
-    _output(output),
-    _numPoints(numPoints),
-    _numFields(numFields)
-  {
-    // Nothing to do
-  }
-
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int elementIndex) const {
-    int cl = elementIndex;// / _numFields;
-    //int lbf = elementIndex % _numFields;
-
-    for (int lbf = 0; lbf < _numFields; lbf ++) {
-      double tmpVal = 0;
-      for (int qp = 0; qp < _numPoints; qp++) {
-        tmpVal += _inputFields(cl, lbf, qp) * _inputData(cl,  qp);
-      }
-      _output(cl, lbf) = tmpVal;
-    } // P-loop
-  }
-
-private:
-  ContractDataFieldScalarFunctor();
-};
-
-
 
 template <class DeviceType, class KokkosInputData, class KokkosInputField>
 double
@@ -240,10 +174,8 @@ runKokkosTest(const unsigned int numberOfRepeats,
 
   // copy the data into the device views and ship them over
   for (int cl = 0; cl < numCells; ++cl) {
-    int clDim = cl * numPoints * numFields;
     for (int qp = 0; qp < numPoints; ++qp) {
-      int qpDim = qp * numFields;
-          kokkosInputData_A(cl, qp) = 
+          kokkosInputData_A(cl, qp) =
             inputData_LayoutRight[cl * numPoints + qp];
       for (int lbf = 0; lbf < numFields; ++lbf) {
           kokkosInputField(cl, lbf, qp) =
