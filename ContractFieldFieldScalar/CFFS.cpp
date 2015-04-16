@@ -2163,7 +2163,7 @@ int main(int argc, char* argv[]) {
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
     {{/*8, 16, 32,*/ 8, 64, 2048/*128, 512, 1024/*, 2048*/}};
-  const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
+  const array<float, 2> memorySizeExtrema = {{1e6, 1e8}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const unsigned int tile_size = 8;
@@ -2587,7 +2587,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults);
 
       }
-      /*
+      
       {
         const unsigned int numberOfThreadsPerBlock = numBasis;
 
@@ -2613,7 +2613,7 @@ int main(int argc, char* argv[]) {
                       &contractionResults,
                       tile_size);
 
-      }
+      }/*
       {
         const unsigned int numberOfThreadsPerBlock = 256;
 
@@ -2798,7 +2798,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults);
       }
-     /* 
+    /* 
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2824,7 +2824,7 @@ int main(int argc, char* argv[]) {
               &totalNumberOfRepeats,
               &contractionResults,
               tile_size);
-      }*/
+      }
       {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float***, Kokkos::LayoutRight,
@@ -2850,7 +2850,7 @@ int main(int argc, char* argv[]) {
               &contractionResults,
               tile_size);
       }
-
+*/
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
       // ===============================================================
