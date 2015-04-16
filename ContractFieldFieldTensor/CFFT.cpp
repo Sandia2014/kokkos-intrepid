@@ -46,7 +46,9 @@ enum CudaStyle {CudaStyle_Independent,
 
 enum KokkosStyle {
   KokkosStyle_Independent,
-  KokkosStyle_Tiling
+  KokkosStyle_Tiling,
+  KokkosStyle_Slicing,
+  KokkosStyle_AdaptiveSlicing
 };
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
@@ -780,7 +782,8 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
     const vector<int> & junkDataToClearTheCache,
     size_t * junkDataCounter,
     unsigned int * const totalNumberOfRepeats,
-    vector<float> * contractionResults) {
+    vector<float> * contractionResults,
+    KokkosStyle kokkosStyle) {
 
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
@@ -877,7 +880,7 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
     KokkosJunkVector>
       kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
 
-
+  if(kokkosStyle == KokkosStyle_Slicing){
   // breaking formatting convention because holy freak that's long
   CFFS_Slicing_TeamFunctor<KokkosContractionData,
     KokkosContractionData,
@@ -894,7 +897,24 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
 
   const team_policy slicing_policy(
       numberOfContractions*numLeftFields , numRightFields );
+  }
+  else {
+    CFFS_AdaptiveSlicing_TeamFunctor<KokkosContractionData,
+      KokkosContractionData,
+      KokkosContractionResults>
+        contractionFunctor(numberOfContractions,
+            numLeftFields,
+            numRightFields,
+            numPoints,
+            tens1,
+            tens2,
+            dev_kokkosContractionData_Left,
+            dev_kokkosContractionData_Right,
+            dev_kokkosContractionResults);
 
+    const team_policy slicing_policy(
+        numberOfContractions*numLeftFields/2 , numRightFields*2 );
+  }
 
   timespec tic;
   double totalElapsedTime = 0;
@@ -1397,6 +1417,10 @@ int main(int argc, char* argv[]) {
   vector<vector<float> >
     kokkosSlicingTimesMatrix(numberOfContractionSizes,
                                    	 vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    kokkosAdaptiveSlicingTimesMatrix(numberOfContractionSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
 
 
 #endif
@@ -1920,7 +1944,35 @@ int main(int argc, char* argv[]) {
               junkDataToClearTheCache,
               &junkDataCounter,
               &totalNumberOfRepeats,
-              &contractionResults);
+              &contractionResults,
+              KokkosStyle_Slicing);
+      }
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosAdaptiveSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+          runKokkosAdaptiveSlicingTest<DeviceType,
+          KokkosContractionData>(numberOfContractions,
+              numberOfRepeats,
+              numLeftFields,
+              numRightFields,
+              numPoints,
+              tens1,
+              tens2,
+              memorySize,
+              tensorData_LayoutRight_A,
+              tensorData_LayoutRight_B,
+              correctResults,
+              string("Kokkos Adaptive Slicing"),
+              clearCacheStyle,
+              junkDataToClearTheCache,
+              &junkDataCounter,
+              &totalNumberOfRepeats,
+              &contractionResults,
+              KokkosStyle_AdaptiveSlicing);
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
@@ -2010,6 +2062,9 @@ int main(int argc, char* argv[]) {
 
   writeTimesMatrixToFile(kokkosSlicingTimesMatrix,
                          prefix + string("kokkosSlicingTimes") + suffix);
+
+  writeTimesMatrixToFile(kokkosAdaptiveSlicingTimesMatrix,
+                         prefix + string("kokkosAdaptiveSlicingTimes") + suffix);
 #endif
 
   printf("done writing\n");
