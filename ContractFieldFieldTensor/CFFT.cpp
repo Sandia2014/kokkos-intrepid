@@ -1150,6 +1150,7 @@ runKokkosTest(const unsigned int numCells,
     }
 
   }
+}
 
 
 void contractFieldFieldTensorSerial(vector<float> & outputFields,
