@@ -38,7 +38,7 @@ typedef team_policy::member_type team_member;
 #include "CFFT_AdaptiveSlicing_Cuda.hpp"
 #include "CFFT_Independent_Kokkos.hpp"
 #include "CFFT_Slicing_Kokkos.hpp"
-
+#include "CFFT_AdaptiveSlicing_Kokkos.hpp"
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
                 CudaStyle_Slicing,
@@ -880,6 +880,8 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
     KokkosJunkVector>
       kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
 
+  timespec tic;
+  double totalElapsedTime = 0;
   if(kokkosStyle == KokkosStyle_Slicing){
   // breaking formatting convention because holy freak that's long
   CFFS_Slicing_TeamFunctor<KokkosContractionData,
@@ -945,9 +947,6 @@ runKokkosSlicingTest(const unsigned int numberOfContractions,
 
     const team_policy slicing_policy(
         numberOfContractions*numLeftFields/2 , numRightFields*2 );
-
-        timespec tic;
-        double totalElapsedTime = 0;
         for (unsigned int repeatIndex = 0;
             repeatIndex < numberOfRepeats + 1; ++repeatIndex) {
           *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
@@ -1352,7 +1351,7 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> tensorSizes =
-    {{160, 320, 1600, 6400}};
+    {{160, 320}};
   const array<float, 2> memorySizeExtrema = {{1e7, 1e8}};
   const unsigned int numberOfMemorySizes = 10;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
