@@ -54,7 +54,7 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 	KOKKOS_INLINE_FUNCTION 
 	void operator() (const team_member& thread) const {
 		float sum = 0;
-		float threadSum = 0;
+	//	float threadSum = 0;
 		// Getting information about thread and saving it in a variable
 		const unsigned int teamSize = thread.team_size();
 		const unsigned int threadRank = thread.team_rank();
@@ -69,6 +69,7 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 		
 		const unsigned int reductionSize = _numPoints * _dim1Tens * _dim2Tens;
 		
+		/*
 		for (int index = teamID; index < reductionSize; index += teamSize) {
 			const unsigned int qp = index / (_dim1Tens * _dim2Tens);
 			const unsigned int dim1 = (index % (_dim1Tens * _dim2Tens)) / _dim2Tens;
@@ -77,12 +78,23 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 			threadSum += _leftView(myMatrix, matrixRow, qp, dim1, dim2) *
 						 _rightView(myMatrix, matrixCol, qp, dim1, dim2);
 		}
-
+		*/
+		
+		const unsigned int dimSize = _dim1Tens * _dim2Tens;
+		Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, reductionSize),
+			[&] (const unsigned int& i, float& localSum) {
+			int qp = i / dimSize;
+			int dim1 = (i % dimSize) / _dim2Tens;
+			int dim2 = i % _dim2Tens;
+			localSum += _leftView(myMatrix, matrixRow, qp, dim1, dim2) *
+				_rightView(myMatrix, matrixCol, qp, dim1, dim2);
+			}, sum);
+		/*
 		Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, teamSize),
 			[&] (const unsigned int& i, float& localSum) {
-			localSum += threadSum;
+			sum += threadSum;
 			}, sum);
-
+		*/
 		_outputView(myMatrix, matrixRow, matrixCol) = sum;
 	}
 	private:
