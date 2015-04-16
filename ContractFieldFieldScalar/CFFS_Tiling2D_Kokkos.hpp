@@ -70,8 +70,18 @@ struct CFFS_Tiling_TeamFunctor {
         tileNumber < numberOfPointTiles; ++tileNumber) {
 
       // load the left and right tiles into shared memory
-      left_tile(subRow, subCol) = leftView(resultMatrix, row, tileNumber*tile_size + subCol);
-      right_tile(subRow, subCol) = rightView(resultMatrix, tileNumber*tile_size + subRow, col);
+      if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints){
+        left_tile(subRow, subCol) = leftView(resultMatrix, row, tileNumber*tile_size + subCol);
+      }
+      else {
+        left_tile(subRow,subCol) = 0.0;
+      }
+      if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis) {
+        right_tile(subRow, subCol) = rightView(resultMatrix, tileNumber*tile_size + subRow, col);
+      }
+      else {
+        right_tile(subRow,subCol) = 0.0;
+      }
 
       // make sure everyone's finished loading their pieces of the tiles
       thread.team_barrier();
@@ -81,7 +91,8 @@ struct CFFS_Tiling_TeamFunctor {
       }
       thread.team_barrier();
     }
-    outputView(resultMatrix, row, col) = sum;
+    if (resultMatrix < numCells && row < numBasis && col < numBasis)
+      outputView(resultMatrix, row, col) = sum;
     resultTileIndex += thread.league_size();
   }
 
