@@ -25,7 +25,7 @@ using std::array;
 
 // header file for openmp
 #include <omp.h>
-
+#include "CFFT_Tiling.hpp"
 #ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
 #endif // ENABLE_KOKKOS
@@ -34,6 +34,11 @@ enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
                 CudaStyle_Slicing,
                 CudaStyle_AdaptiveSlicing};
+
+enum KokkosStyle {
+  KokkosStyle_Independent,
+  KokkosStyle_Tiling
+};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
@@ -926,22 +931,24 @@ struct contractFieldFieldTensorFunctor {
 template <class DeviceType, class InputViewType>
 double
 runKokkosTest(const unsigned int numCells,
-              const unsigned int numberOfRepeats,
-              const unsigned int numLeftFields,
-	          const unsigned int numRightFields,
-	      const int numPoints,
-	      const int tens1,
-	      const int tens2,
-              const unsigned int memorySize,
-              const vector<float> & tensorData_LayoutRight_A,
-              const vector<float> & tensorData_LayoutRight_B,
-              const vector<float> & correctResults,
-              const string & kokkosFlavor,
-              const ClearCacheStyle clearCacheStyle,
-              const vector<int> & junkDataToClearTheCache,
-              size_t * junkDataCounter,
-              unsigned int * const totalNumberOfRepeats,
-              vector<float> * results) {
+    const unsigned int numberOfRepeats,
+    const unsigned int numLeftFields,
+    const unsigned int numRightFields,
+    const int numPoints,
+    const int tens1,
+    const int tens2,
+    const unsigned int memorySize,
+    const vector<float> & tensorData_LayoutRight_A,
+    const vector<float> & tensorData_LayoutRight_B,
+    const vector<float> & correctResults,
+    const string & kokkosFlavor,
+    const ClearCacheStyle clearCacheStyle,
+    const vector<int> & junkDataToClearTheCache,
+    size_t * junkDataCounter,
+    unsigned int * const totalNumberOfRepeats,
+    vector<float> * results,
+    KokkosStyle kokkosStyle,
+    const unsigned int tile_size) {
 
   const unsigned int junkDataSize = junkDataToClearTheCache.size();
 
@@ -952,36 +959,36 @@ runKokkosTest(const unsigned int numCells,
   typedef typename KokkosJunkVector::HostMirror         KokkosJunkVector_Host;
 
 
-    int p=numPoints, t1=tens1, t2=tens2;
+  int p=numPoints, t1=tens1, t2=tens2;
 
-    // These are indices into the arrays and should not be
-    // changed unless you change the order of the indices
-    // as well
-    int cLOff = numLeftFields*p*t1*t2;
-    int cROff = numRightFields*p*t1*t2;
-    int basisOff = p*t1*t2;
-    int pLOff = t1*t2;
-    int pROff = t1*t2;
-    int tROff = t2;
-    int t2ROff = 1;
-    int tOff = t2;
+  // These are indices into the arrays and should not be
+  // changed unless you change the order of the indices
+  // as well
+  int cLOff = numLeftFields*p*t1*t2;
+  int cROff = numRightFields*p*t1*t2;
+  int basisOff = p*t1*t2;
+  int pLOff = t1*t2;
+  int pROff = t1*t2;
+  int tROff = t2;
+  int t2ROff = 1;
+  int tOff = t2;
 
   InputViewType dev_kokkosData_Right("kokkos data A",
-                                                  numCells,
-						  p,
-						  t1,
-						  t2,
-						  numRightFields);
+      numCells,
+      p,
+      t1,
+      t2,
+      numRightFields);
 
   Kokkos_input_Host kokkosData_Right =
     Kokkos::create_mirror_view(dev_kokkosData_Right);
 
   InputViewType dev_kokkosData_Left("kokkos data B",
-                                                 numCells,
-						 numLeftFields,
-                                                 p,
-						 t1,
-						 t2);
+      numCells,
+      numLeftFields,
+      p,
+      t1,
+      t2);
 
   Kokkos_input_Host kokkosData_Left =
     Kokkos::create_mirror_view(dev_kokkosData_Left);
@@ -1012,23 +1019,23 @@ runKokkosTest(const unsigned int numCells,
     }
   } */
   for (int cl = 0; cl < numCells; ++cl) {
-	for (int qp = 0; qp < p; ++qp) {
-	    for (int iTens1 = 0; iTens1 < t1; ++iTens1) {
-		for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
-		    for(int rbf = 0; rbf < numRightFields; ++rbf) {
-			kokkosData_Right(cl, qp, iTens1, iTens2, rbf) =
-			    tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff +
-			    iTens1*tROff + iTens2*t2ROff];
-		    }
-		    for(int lbf = 0; lbf < numLeftFields; ++lbf) {
-			kokkosData_Left(cl, lbf, qp, iTens1, iTens2) =
-			    tensorData_LayoutRight_B[cl*cLOff + lbf*basisOff + qp*pLOff +
-			    iTens1*tOff + iTens2];
-		    }
-		}
-	    }
-	}
+    for (int qp = 0; qp < p; ++qp) {
+      for (int iTens1 = 0; iTens1 < t1; ++iTens1) {
+        for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
+          for(int rbf = 0; rbf < numRightFields; ++rbf) {
+            kokkosData_Right(cl, qp, iTens1, iTens2, rbf) =
+              tensorData_LayoutRight_A[cl*cROff + rbf*basisOff + qp*pROff +
+              iTens1*tROff + iTens2*t2ROff];
+          }
+          for(int lbf = 0; lbf < numLeftFields; ++lbf) {
+            kokkosData_Left(cl, lbf, qp, iTens1, iTens2) =
+              tensorData_LayoutRight_B[cl*cLOff + lbf*basisOff + qp*pLOff +
+              iTens1*tOff + iTens2];
+          }
+        }
+      }
     }
+  }
 
 
   Kokkos::deep_copy(dev_kokkosData_Right, kokkosData_Right);
@@ -1046,87 +1053,107 @@ runKokkosTest(const unsigned int numCells,
                            KokkosJunkVector>
     kokkosFunctor_ClearCache(dev_kokkosJunkDataToClearTheCache);
 
-  // breaking formatting convention because holy freak that's long
-  contractFieldFieldTensorFunctor<DeviceType,
-                            InputViewType,
-			    InputViewType,
-                            KokkosResults>
-    tensorFunctor(dev_kokkosData_Left,
-                              dev_kokkosData_Right,
-                              dev_kokkosResults,
-			      numCells,
-			      numLeftFields,
-			      numRightFields,
-			      p,
-			      t1,
-			      t2);
-
-  timespec tic;
   double totalElapsedTime = 0;
-  for (unsigned int repeatIndex = 0;
-       repeatIndex < numberOfRepeats+1; ++repeatIndex) {
-    *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
-    if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
-         repeatIndex == 1) ||
-        clearCacheStyle == ClearCacheAfterEveryRepeat) {
-      tic = getTimePoint();
+  if (kokkosStyle == KokkosStyle_Independent)
+  {
+    // breaking formatting convention because holy freak that's long
+    contractFieldFieldTensorFunctor<DeviceType,
+      InputViewType,
+      InputViewType,
+      KokkosResults>
+        tensorFunctor(dev_kokkosData_Left,
+            dev_kokkosData_Right,
+            dev_kokkosResults,
+            numCells,
+            numLeftFields,
+            numRightFields,
+            p,
+            t1,
+            t2);
+
+    timespec tic;
+    for (unsigned int repeatIndex = 0;
+        repeatIndex < numberOfRepeats+1; ++repeatIndex) {
+      *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+      if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+            repeatIndex == 1) ||
+          clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        tic = getTimePoint();
+      }
+
+      Kokkos::parallel_for(numCells*numRightFields*numLeftFields, tensorFunctor);
+
+      // wait for this repeat's results to finish
+      Kokkos::fence();
+      if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        const timespec toc = getTimePoint();
+        const float elapsedTime = getElapsedTime(tic, toc);
+        totalElapsedTime += elapsedTime;
+
+        // attempt to scrub all levels of cache
+        size_t partialJunkDataCounter = 0;
+        Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+            partialJunkDataCounter);
+        *junkDataCounter += partialJunkDataCounter;
+      }
     }
-
-    // actually do the calculation
-    Kokkos::parallel_for(numCells*numRightFields*numLeftFields, tensorFunctor);
-
-    // wait for this repeat's results to finish
-    Kokkos::fence();
-    if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+    if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
       const timespec toc = getTimePoint();
-      const float elapsedTime = getElapsedTime(tic, toc);
-      totalElapsedTime += elapsedTime;
-
-      // attempt to scrub all levels of cache
-      size_t partialJunkDataCounter = 0;
-      Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
-                              partialJunkDataCounter);
-      *junkDataCounter += partialJunkDataCounter;
+      totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
     }
-  }
-  if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
-    const timespec toc = getTimePoint();
-    totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
-  }
+  // endif kokkosStyle == Independent
+  } else if (kokkosStyle == KokkosStyle_Tiling) {
+    CFFS_Tiling_TeamFunctor_1D<InputViewType,
+      InputViewType, KokkosResults>
+        tensorFunctor(numCells,
+            numLeftFields,
+            numRightFields,
+            p,
+            t1,
+            t2,
+            dev_kokkosData_Left,
+            dev_kokkosData_Right,
+            dev_kokkosResults,
+            tile_size);
 
-  // copy over the results from the device to the host
-  Kokkos::deep_copy(kokkosResults, dev_kokkosResults);
-  /*
-  for (unsigned int tensorIndex = 0;
-       tensorIndex < numCells; ++tensorIndex) {
-    results->at(tensorIndex) =
-      kokkosResults(tensorIndex);
-  }
-  */
+    const unsigned int numBlocks = numCells *
+      (((numLeftFields - 1)/tile_size)+1) * (((numRightFields -1)/tile_size)+1);
 
-  for (int i = 0; i < numCells; i++) {
-    for (int j = 0; j < numLeftFields; j++) {
-	for (int k = 0; k < numRightFields; k++) {
-	    results->at(i*numLeftFields*numRightFields + j*numRightFields + k) =
-	    kokkosResults(i, j, k);
-	}
+    const team_policy tiling_policy(numBlocks,tile_size*tile_size);
+
+
+    timespec tic;
+    for (unsigned int repeatIndex = 0;
+        repeatIndex < numberOfRepeats+1; ++repeatIndex) {
+      *totalNumberOfRepeats = *totalNumberOfRepeats + 1;
+      if ((clearCacheStyle == DontClearCacheAfterEveryRepeat &&
+            repeatIndex == 1) ||
+          clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        tic = getTimePoint();
+      }
+
+      Kokkos::parallel_for(tiling_policy, tensorFunctor);
+
+      // wait for this repeat's results to finish
+      Kokkos::fence();
+      if (clearCacheStyle == ClearCacheAfterEveryRepeat) {
+        const timespec toc = getTimePoint();
+        const float elapsedTime = getElapsedTime(tic, toc);
+        totalElapsedTime += elapsedTime;
+
+        // attempt to scrub all levels of cache
+        size_t partialJunkDataCounter = 0;
+        Kokkos::parallel_reduce(junkDataSize, kokkosFunctor_ClearCache,
+            partialJunkDataCounter);
+        *junkDataCounter += partialJunkDataCounter;
+      }
     }
+    if (clearCacheStyle == DontClearCacheAfterEveryRepeat) {
+      const timespec toc = getTimePoint();
+      totalElapsedTime = getElapsedTime(tic, toc) / numberOfRepeats;
+    }
+
   }
-  // check the results
-  checkAnswer(correctResults, *results,
-              numCells*numLeftFields*numRightFields, memorySize,
-              kokkosFlavor);
-
-
-  // scrub the results
-  std::fill(results->begin(),
-            results->end(),
-            std::numeric_limits<float>::quiet_NaN());
-  return totalElapsedTime;
-}
-
-#endif // ENABLE_KOKKOS
-
 
 
 void contractFieldFieldTensorSerial(vector<float> & outputFields,
@@ -1305,6 +1332,10 @@ int main(int argc, char* argv[]) {
                          vector<float>(numberOfMemorySizes, 0));
   vector<vector<float> >
     kokkosCudaIndependentTimesMatrix(numberOfTensorSizes,
+                                     vector<float>(numberOfMemorySizes, 0));
+
+  vector<vector<float> >
+    kokkosCudaTilingTimesMatrix(numberOfTensorSizes,
                                      vector<float>(numberOfMemorySizes, 0));
 #endif
 
@@ -1771,7 +1802,9 @@ int main(int argc, char* argv[]) {
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
-                                              &tensorResults);
+                                              &tensorResults,
+                                              KokkosStyle_Independent,
+                                              0);
       }
       {
         typedef Kokkos::Cuda                               DeviceType;
@@ -1797,7 +1830,37 @@ int main(int argc, char* argv[]) {
                                               junkDataToClearTheCache,
                                               &junkDataCounter,
                                               &totalNumberOfRepeats,
-                                              &tensorResults);
+                                              &tensorResults,
+                                              KokkosStyle_Independent,
+                                              0);
+      }
+      {
+        typedef Kokkos::Cuda                               DeviceType;
+        typedef Kokkos::View<float*****, Kokkos::LayoutRight,
+                             DeviceType>                   KokkosData;
+        // i pass in the layout right version even though this is the cuda
+        //  version because it gets copied into the view inside the function.
+        kokkosCudaTilingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+          runKokkosTest<DeviceType,
+                        KokkosData>(numberOfTensors,
+                                              numberOfRepeats,
+                                              numLeftFields,
+					      numRightFields,
+					      numPoints,
+					      tens1,
+					      tens2,
+                                              memorySize,
+                                              tensorData_LayoutRight_A,
+                                              tensorData_LayoutRight_B,
+                                              correctResults,
+                                              string("Kokkos cuda"),
+                                              clearCacheStyle,
+                                              junkDataToClearTheCache,
+                                              &junkDataCounter,
+                                              &totalNumberOfRepeats,
+                                              &tensorResults,
+                                              KokkosStyle_Tiling,
+                                              16);
       }
       // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       // ***************** </do kokkos> ********************************
@@ -1853,6 +1916,9 @@ int main(int argc, char* argv[]) {
                          prefix + string("kokkosOmpTimes") + suffix);
   writeTimesMatrixToFile(kokkosCudaIndependentTimesMatrix,
                          prefix + string("kokkosCudaIndependentTimes") + suffix);
+
+  writeTimesMatrixToFile(kokkosCudaTilingTimesMatrix,
+                         prefix + string("kokkosCudaTilingTimes") + suffix);
 #endif
 
   printf("done writing\n");
@@ -1883,7 +1949,7 @@ int main(int argc, char* argv[]) {
   Kokkos::finalize();
 #endif
     exit(1);
-  
+
 
   return 0;
 }

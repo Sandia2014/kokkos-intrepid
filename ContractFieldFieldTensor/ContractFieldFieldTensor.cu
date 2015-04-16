@@ -19,7 +19,7 @@
 
 // header files for kokkos
 #include <Kokkos_Core.hpp>
-
+#include "CFFT_Tiling.hpp"
 
 #include <cuda_runtime.h>
 
@@ -48,7 +48,7 @@ double random_double() {
 }
 
 
-    
+
 void contractFieldFieldTensorSerial(double * outputFields,
                                     double *   leftFields,
                                     double *  rightFields,
@@ -63,10 +63,10 @@ void contractFieldFieldTensorSerial(double * outputFields,
      * (cell, left or right, points, dim1Tens, dim2Tens). That is the way
      * the indexing is calculated.
      */
-    
+
     if (sumInto) {
 	for (int cl = 0; cl < numCells; cl++) {
-	    // Need to index into the different arrays, so I am doing the 
+	    // Need to index into the different arrays, so I am doing the
 	    // calculation once here
 	    int clOff = numLeftFields*numPoints*dim1Tensor*dim2Tensor;
 	    int crOff = numRightFields*numPoints*dim1Tensor*dim2Tensor;
@@ -123,7 +123,7 @@ void contractFieldFieldTensorSerial(double * outputFields,
 	} // C-loop
    }
 } // end contractFieldFieldTensor
- 
+
 
 template<class DeviceType, class LeftViewType, class RightViewType, class
 OutputViewType>
@@ -164,7 +164,7 @@ struct contractFieldFieldTensorFunctor {
 		int matrixIndex = myID % (_numLeftFields * _numRightFields);
 		int lbf = matrixIndex / _numRightFields;
 		int rbf = matrixIndex % _numRightFields;
-		
+
 		double temp = 0;
 		for (int qp = 0; qp < _numPoints; qp++) {
 		    for (int iTens1 = 0; iTens1 < _dim1Tens; iTens1++) {
@@ -197,7 +197,7 @@ void contractFieldFieldTensorKokkos(output_host_t& outHost,
     int dim1Tens,
     int dim2Tens,
     double* time = NULL) {
-   
+
     Kokkos::deep_copy(leftDevice, leftHost);
     Kokkos::deep_copy(rightDevice, rightHost);
     Kokkos::deep_copy(outDevice, outHost);
@@ -300,7 +300,7 @@ int main(int argc, char* argv[]) {
     timespec tic;
     clock_gettime(CLOCK_MONOTONIC, &tic);
 
-    contractFieldFieldTensorSerial(out1_c_l_r, in_c_l_p_t1_t2, in_c_r_p_t1_t2, 
+    contractFieldFieldTensorSerial(out1_c_l_r, in_c_l_p_t1_t2, in_c_r_p_t1_t2,
 	    false, c, l, r, p, t1, t2);
 
     timespec toc;
@@ -374,10 +374,10 @@ int main(int argc, char* argv[]) {
 		for (int iTens2 = 0; iTens2 < t2; ++iTens2) {
 		    for(int rbf = 0; rbf < r; ++rbf) {
 			cuda_hostRight(cl, qp, iTens1, iTens2, rbf) =
-			    in_c_r_p_t1_t2[cl*cROff + rbf*basisOff + qp*pROff + 
+			    in_c_r_p_t1_t2[cl*cROff + rbf*basisOff + qp*pROff +
 			    iTens1*tROff + iTens2*t2ROff];
 			omp_hostRight(cl, qp, iTens1, iTens2, rbf) =
-			    in_c_r_p_t1_t2[cl*cROff + rbf*basisOff + qp*pROff + 
+			    in_c_r_p_t1_t2[cl*cROff + rbf*basisOff + qp*pROff +
 			    iTens1*tROff + iTens2*t2ROff];
 		    }
 		    for(int lbf = 0; lbf < l; ++lbf) {
@@ -422,7 +422,7 @@ int main(int argc, char* argv[]) {
     // Commented out so that the compiler doesn't give a warning
     double elapsedTime_kokkos_cuda_copy = getElapsedTime(tic, toc);
 
-    
+
     // This is made to check for correctness, but it is off still because
     // doing 1000 double operations throws off the correctness and I haven't
     // found a good way to calculate the epsilon that the two doubles
@@ -453,11 +453,11 @@ int main(int argc, char* argv[]) {
 	}
     }
 
-    
+
     std::cout << "kokkos runtime of " << elapsedTime_kokkos_cuda_nocopy << std::endl;
     std::cout << "speed up of " <<
 	elapsedTime_serial/elapsedTime_kokkos_cuda_nocopy << std::endl;
-    
+
     std::cout << "kokkos runtime including copy of " << elapsedTime_kokkos_cuda_copy << std::endl;
     std::cout << "copy speed up of " <<
 	elapsedTime_serial/elapsedTime_kokkos_cuda_copy << std::endl;
