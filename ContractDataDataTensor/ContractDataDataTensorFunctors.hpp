@@ -65,7 +65,7 @@ struct ContractDataDataTensor_TeamDepth2Functor {
     const unsigned int cellIndex = thread.league_rank();
 
     float sum = 0;
-    // Each of the _dim1 * _dim2 threads qp dimension
+    // Each of the _dim1 * _dim2 threads contracts the qp dimension
     Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _dim1 * _dim2),
         [&] (const unsigned int threadIndex, float& localsum) {
           const unsigned int dim1 = threadIndex / _dim2;
@@ -233,7 +233,6 @@ struct ContractDataDataTensorTeamStrideFunctor {
     // Some useful derived constants that we'll reuse
     const unsigned int dim12 = _dim1 * _dim2;
     const unsigned int cellSize = _numPoints * dim12;
-
     float sum = 0;
 
     Kokkos::parallel_reduce

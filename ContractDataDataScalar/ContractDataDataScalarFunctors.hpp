@@ -46,7 +46,7 @@ struct KokkosFunctor_Independent {
   void operator()(const unsigned int dotProductIndex) const {
     double sum = 0;
 
-    // Each thread does one dot product
+    // Each thread does one dot product independently
     for (unsigned int entryIndex = 0; entryIndex < _dotProductSize;
          ++entryIndex) {
       sum +=

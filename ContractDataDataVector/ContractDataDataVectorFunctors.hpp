@@ -25,26 +25,26 @@ using std::array;
 #include <omp.h>
 #include <Kokkos_Core.hpp>
 
-template <class DeviceType, class KokkosDotProductData,
-          class KokkosDotProductResults>
+template <class DeviceType, class KokkosInputView,
+          class KokkosResults>
 struct KokkosFunctor_Independent {
 
   typedef DeviceType device_type;
 
   const unsigned int _numPoints;
   const unsigned int _dimVec;
-  KokkosDotProductData _data_A;
-  KokkosDotProductData _data_B;
-  KokkosDotProductResults _results;
+  KokkosInputView _leftView;
+  KokkosInputView _rightView;
+  KokkosResults _results;
 
   KokkosFunctor_Independent(const unsigned int numPoints,
                             const unsigned int dimVec,
-                            KokkosDotProductData data_A,
-                            KokkosDotProductData data_B,
-                            KokkosDotProductResults results) :
+                            KokkosInputView leftView,
+                            KokkosInputView rightView,
+                            KokkosResults results) :
     _numPoints(numPoints),
     _dimVec(dimVec),
-    _data_A(data_A), _data_B(data_B),
+    _leftView(leftView), _rightView(rightView),
     _results(results) {
   }
 
@@ -52,11 +52,12 @@ struct KokkosFunctor_Independent {
   void operator()(const unsigned int cl) const {
 
     float tmpVal = 0;
+    // Each thread does one contraction independently
     for (int qp = 0; qp < _numPoints; qp++) {
       for (int iVec = 0; iVec < _dimVec; iVec++) {
         tmpVal +=
-          _data_A(cl, qp, iVec) *
-          _data_B(cl, qp, iVec);;
+          _leftView(cl, qp, iVec) *
+          _rightView(cl, qp, iVec);;
       } // D-loop
     } // P-loop
     _results(cl) = tmpVal;

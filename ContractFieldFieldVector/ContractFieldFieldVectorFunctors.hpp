@@ -69,6 +69,7 @@ struct KokkosFunctor_Independent {
     int leftFieldNum = fieldsIndex / _numRightFields;
     int rightFieldNum = fieldsIndex % _numRightFields;
 
+    // Each thread does one element of one output cell
     double tmpVal = 0;
     for (int qp = 0; qp < _numPoints; qp++) {
       for (int iVec = 0; iVec < _dimVec; iVec++) {

@@ -48,9 +48,9 @@ struct ContractDataFieldScalarFunctor {
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const unsigned int elementIndex) const {
-    int cl = elementIndex;// / _numFields;
-    //int lbf = elementIndex % _numFields;
+    int cl = elementIndex;
 
+    // Each thread does one contraction independently
     for (int lbf = 0; lbf < _numFields; lbf ++) {
       double tmpVal = 0;
       for (int qp = 0; qp < _numPoints; qp++) {

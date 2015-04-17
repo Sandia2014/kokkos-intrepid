@@ -45,7 +45,7 @@ struct KokkosFunctor_Independent {
                             KokkosDataB data_B,
                             KokkosDotProductResults results) :
     _numCells(numCells),
-    _numPoints(numPoints), 
+    _numPoints(numPoints),
     _dimVec(dimVec),
     _data_A(data_A), _data_B(data_B),
     _results(results) {
@@ -56,16 +56,17 @@ struct KokkosFunctor_Independent {
     const unsigned int cl = elementIndex % _numCells;
     const unsigned int lbf = elementIndex / _numCells;
 
+    // Each thread does one element in one output cell
     float tmpVal = 0;
     for (int qp = 0; qp < _numPoints; qp++) {
       for (int iVec = 0; iVec < _dimVec; iVec++) {
-        tmpVal += 
+        tmpVal +=
           _data_A(cl, lbf, qp, iVec) *
           _data_B(cl, qp, iVec);
       } // D-loop
     } // P-loop
     _results(cl, lbf) = tmpVal;
-    
+
   }
 
 private:
