@@ -25,6 +25,7 @@ using std::string;
 using std::vector;
 using std::array;
 
+#include <Kokkos_Core.hpp>
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction};
@@ -130,4 +131,29 @@ checkAnswer(const vector<float> & correctResults,
     }
   }
 }
+
+template <class DeviceType, class KokkosJunkVector>
+struct KokkosFunctor_ClearCache {
+
+  typedef size_t     value_type;
+  typedef DeviceType device_type;
+
+  KokkosJunkVector _junkDataToClearTheCache;
+
+  KokkosFunctor_ClearCache(KokkosJunkVector dev_junkDataToClearTheCache) :
+    _junkDataToClearTheCache(dev_junkDataToClearTheCache) {
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const unsigned int index,
+                  value_type & junkDataCounter) const {
+    junkDataCounter += _junkDataToClearTheCache(index);
+  }
+
+private:
+  KokkosFunctor_ClearCache();
+
+};
+
+
 #endif // UTILITIES_H

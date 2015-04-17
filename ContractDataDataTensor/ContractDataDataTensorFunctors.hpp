@@ -30,33 +30,6 @@ using std::array;
 typedef Kokkos::DefaultExecutionSpace       Device ;
 typedef Kokkos::HostSpace::execution_space  Host ;
 
-
-template <class DeviceType, class KokkosJunkVector>
-struct KokkosFunctor_ClearCache {
-
-  typedef size_t     value_type;
-  typedef DeviceType device_type;
-  typedef typename Kokkos::TeamPolicy<DeviceType> team_policy;
-  typedef typename team_policy::member_type team_member;
-
-  KokkosJunkVector _junkDataToClearTheCache;
-
-  KokkosFunctor_ClearCache(KokkosJunkVector dev_junkDataToClearTheCache) :
-    _junkDataToClearTheCache(dev_junkDataToClearTheCache) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int index,
-                  value_type & junkDataCounter) const {
-    junkDataCounter += _junkDataToClearTheCache(index);
-  }
-
-private:
-  KokkosFunctor_ClearCache();
-
-};
-
-
 template<class DeviceType, class LeftViewType, class RightViewType, class OutputViewType>
 struct ContractDataDataTensor_TeamDepth2Functor {
   LeftViewType _leftInput;

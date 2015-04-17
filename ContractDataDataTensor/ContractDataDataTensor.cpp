@@ -32,9 +32,8 @@ using std::array;
 #include <Kokkos_Core.hpp>
 #endif // ENABLE_KOKKOS
 
-#include "Utilities.hpp"
+#include "../Utilities.hpp"
 #include "ContractDataDataTensorFunctors.hpp"
-
 
 enum KokkosStyle {KokkosStyle_Independent,
                   KokkosStyle_TeamStride,

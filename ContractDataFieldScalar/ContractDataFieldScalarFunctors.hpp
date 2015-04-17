@@ -22,31 +22,6 @@ using std::array;
 #include <omp.h>
 #include <Kokkos_Core.hpp>
 
-
-template <class DeviceType, class KokkosJunkVector>
-struct KokkosFunctor_ClearCache {
-
-  typedef size_t     value_type;
-  typedef DeviceType device_type;
-
-  KokkosJunkVector _junkDataToClearTheCache;
-
-  KokkosFunctor_ClearCache(KokkosJunkVector dev_junkDataToClearTheCache) :
-    _junkDataToClearTheCache(dev_junkDataToClearTheCache) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int index,
-                  value_type & junkDataCounter) const {
-    junkDataCounter += _junkDataToClearTheCache(index);
-  }
-
-private:
-  KokkosFunctor_ClearCache();
-
-};
-
-
 template<class DeviceType, class DataViewType, class FieldViewType, class OutputViewType>
 struct ContractDataFieldScalarFunctor {
   typedef DeviceType device_type;
