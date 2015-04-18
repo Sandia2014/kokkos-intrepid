@@ -26,11 +26,14 @@ ompTimes = numpy.loadtxt(open(prefix + 'ompTimes' + suffix + '.csv','rb'),delimi
 #cudaIndependentTimes = numpy.loadtxt(open(prefix + 'cudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 #cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 #cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaTeamDepth1Times = numpy.loadtxt(open(prefix + 'kokkosCudaTeamDepth1Times' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaTeamDepth2Times = numpy.loadtxt(open(prefix + 'kokkosCudaTeamDepth2Times' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+kokkosCudaTeamDepth3Times = numpy.loadtxt(open(prefix + 'kokkosCudaTeamDepth3Times' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaTeamStrideTimes = numpy.loadtxt(open(prefix + 'kokkosCudaTeamStrideTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#kokkosOmpTeamSize2Times = numpy.loadtxt(open(prefix + 'kokkosOmpTeamSize2Times' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
+#kokkosOmpTeamSize12Times = numpy.loadtxt(open(prefix + 'kokkosOmpTeamSize12Times' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 
 # set up a list of the times and names, for easy iteration later
 # TODO: make this consistent with the files that you read in and/or care about
@@ -50,16 +53,22 @@ allNames.append('omp')
 #allNames.append('cudaReduction')
 #allTimes.append(cudaSwitchingTimes)
 #allNames.append('cudaSwitching')
-allTimes.append(kokkosOmpTimes)
-allNames.append('kokkosOmp')
+#allTimes.append(kokkosOmpTimes)
+#allNames.append('kokkosOmp')
 allTimes.append(kokkosCudaIndependentTimes)
 allNames.append('kokkosCudaIndependent')
 allTimes.append(kokkosCudaTeamDepth1Times)
 allNames.append('kokkosCudaTeamDepth1')
 allTimes.append(kokkosCudaTeamDepth2Times)
 allNames.append('kokkosCudaTeamDepth2')
+allTimes.append(kokkosCudaTeamDepth3Times)
+allNames.append('kokkosCudaTeamDepth3')
 allTimes.append(kokkosCudaTeamStrideTimes)
 allNames.append('kokkosCudaTeamStride')
+#allTimes.append(kokkosOmpTeamSize2Times)
+#allNames.append('kokkosOmpTeamSize2')
+#allTimes.append(kokkosOmpTeamSize12Times)
+#allNames.append('kokkosOmpTeamSize12')
 
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
@@ -89,7 +98,7 @@ fig3d = plt.figure(0)
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
 surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(numberOfDotProducts), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
-plt.xlabel('log10(numPoints)')
+plt.xlabel('log10(contractionSize)')
 plt.ylabel('log10(memorySize)')
 ax.set_zlabel('log10(numCells)')
 plt.title('number of cells')
@@ -121,7 +130,7 @@ for timesIndex in range(len(allTimes)):
   ax.view_init(elev=0, azim=-111)
   surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(numPoints)')
+  plt.xlabel('log10(contractionSize)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(raw time) [seconds]')
   ax.set_zlim([minValue, maxValue])
@@ -175,7 +184,7 @@ for timesIndex in range(len(allTimes)):
   ax.view_init(elev=0, azim=-111)
   surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(times / memorySize), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(numPoints)')
+  plt.xlabel('log10(contractionSize)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(normalized time [seconds / memorySize])')
   ax.set_zlim([minValue, maxValue])
@@ -213,7 +222,7 @@ for timesIndex in numpy.arange(1, len(allTimes)):
   ax.view_init(elev=0, azim=-111)
   surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(allTimes[0] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
-  plt.xlabel('log10(numPoints)')
+  plt.xlabel('log10(contractionSize)')
   plt.ylabel('log10(memorySize)')
   ax.set_zlabel('log10(speedup) [unitless]')
   ax.set_zlim([minSpeedup, maxSpeedup])
@@ -379,6 +388,69 @@ for memorySizeIndex in [-1, 0]:
   else:
     plt.show()
 """
+
+
+maxSpeedup = -10
+minSpeedup = 10
+for timesIndex in numpy.arange(4, len(allTimes)):
+  maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[3] / allTimes[timesIndex]))])
+  minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[3] / allTimes[timesIndex]))])
+colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
+# intentionally start at 4 so that i don't compare cuda or serial or omp to cuda
+for timesIndex in numpy.arange(4, len(allTimes)):
+  fig3d = plt.figure(0)
+  plt.clf()
+  times = allTimes[timesIndex]
+  name = allNames[timesIndex]
+  ax = fig3d.gca(projection='3d')
+  ax.view_init(elev=0, azim=-111)
+  surf = ax.plot_surface(log10(dotProductSize), log10(memorySize), log10(allTimes[3] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+  surf.set_norm(colorNormalizer)
+  plt.xlabel('log10(contractionSize)')
+  plt.ylabel('log10(memorySize)')
+  ax.set_zlabel('log10(speedup) [unitless]')
+  ax.set_zlim([minSpeedup, maxSpeedup])
+  plt.title(name + ' speedup over kokkosCudaIndependent')
+  if (makeImageFiles == True):
+    ax.view_init(elev=2, azim=-23)
+    filename = outputPrefix + 'VersusKokkosCudaIndependent_' + name + suffix
+    plt.savefig(filename + '.pdf')
+    print 'saved file to %s' % filename
+    if (makeOrbitFilesForMovies == True and timesIndex > 2):
+      for frameIndex in range(numberOfOrbitFrames):
+        ax.view_init(elev=2, azim=360 * frameIndex / (numberOfOrbitFrames - 1))
+        filename = outputPrefix + 'orbitFrames/VersusKOkkosCudaIndependent_' + name + suffix + '_%02d.pdf' % frameIndex
+        plt.savefig(filename)
+        print 'saved file to %s' % filename
+  else:
+    plt.show()
+fig2d = plt.figure(1)
+for memorySizeIndex in [-1, 0]:
+  legendNames = []
+  plt.cla()
+  for timesIndex in range(len(allTimes)):
+    times = allTimes[timesIndex]
+    name = allNames[timesIndex]
+    plt.plot(dotProductSize[:, memorySizeIndex], allTimes[2][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
+    legendNames.append(name)
+  plt.xscale('log')
+  plt.yscale('log')
+  plt.title('speedup over kokkos cuda independent for memory size %.2e' % memorySize[0, memorySizeIndex], fontsize=16)
+  plt.xlabel('contraction size', fontsize=16)
+  plt.ylabel('speedup [unitless]', fontsize=16)
+  plt.xlim([dotProductSize[0, 0], dotProductSize[-1, 0]])
+  ax2d.legend(legendNames, loc='center right', bbox_to_anchor=bbox_to_anchor2d)
+  if (makeImageFiles == True):
+    sizeDescription = 'largestSize' if (memorySizeIndex == -1) else 'smallestSize'
+    filename = outputPrefix + 'VersusKokkosCudaIndependent_2d_' + sizeDescription + suffix
+    plt.savefig(filename + '.pdf')
+    print 'saved file to %s' % filename
+  else:
+    plt.show()
+
+
+
+
 
 # these graphs are essentially duplicates of ones made already, but with a linear scale instead of logarithmic (by request of carter).
 # these graphs just compare kokkos omp versus openmp and kokkos cuda versus cuda

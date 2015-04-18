@@ -12,7 +12,7 @@ import csv
 from mpl_toolkits.mplot3d import Axes3D
 from numpy import log10
 
-prefix = 'data/ArrayOfContractions_'
+prefix = 'data/ContractFieldFieldScalar_'
 suffix = '_clearCache_shadowfax'
 outputPrefix = 'figures/'
 

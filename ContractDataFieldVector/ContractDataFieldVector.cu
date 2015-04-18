@@ -25,65 +25,15 @@ using std::array;
 
 // header file for openmp
 #include <omp.h>
+#include "../Utilities.hpp"
 
 #ifdef ENABLE_KOKKOS
 #include <Kokkos_Core.hpp>
+#include "ContractDataFieldVectorFunctors.hpp"
 #endif // ENABLE_KOKKOS
-
-enum CudaStyle {CudaStyle_Independent,
-                CudaStyle_Reduction};
 
 enum ClearCacheStyle {ClearCacheAfterEveryRepeat,
                       DontClearCacheAfterEveryRepeat};
-
-string
-convertCudaStyleToString(const CudaStyle cudaStyle) {
-  switch (cudaStyle) {
-  case CudaStyle_Independent:
-    return string("CudaStyle_Independent");
-  case CudaStyle_Reduction:
-    return string("CudaStyle_Reduction");
-  default:
-    fprintf(stderr, "invalid cuda style\n");
-    exit(1);
-  };
-}
-
-// stolen from http://stackoverflow.com/questions/14038589/what-is-the-canonical-way-to-check-for-errors-using-the-cuda-runtime-api
-#define checkCudaError(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline
-void
-gpuAssert(const cudaError_t code, const char *file, const int line, bool abort=true) {
-  if (code != cudaSuccess) {
-    fprintf(stderr,"GPU Error: %s %s %d\n", cudaGetErrorString(code), file, line);
-    if (abort == true) {
-      exit(code);
-    }
-  }
-}
-
-timespec
-getTimePoint() {
-  timespec timepoint;
-  clock_gettime(CLOCK_MONOTONIC, &timepoint);
-  return timepoint;
-}
-
-// yay for having to use pre-c++11 timing because of nvcc
-double
-getElapsedTime(const timespec & start, const timespec & end) {
-  timespec temp;
-  if ((end.tv_nsec-start.tv_nsec)<0) {
-    temp.tv_sec = end.tv_sec-start.tv_sec-1;
-    temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
-  } else {
-    temp.tv_sec = end.tv_sec-start.tv_sec;
-    temp.tv_nsec = end.tv_nsec-start.tv_nsec;
-  }
-  return double(temp.tv_sec) + double(temp.tv_nsec) / 1e9;
-}
-
-
 
 // NOTE: Everything in RAW_CUDA guards is still from Array of Dot Products
 #ifdef RAW_CUDA
@@ -185,57 +135,6 @@ doCudaDotProducts_Reduction_kernel(const unsigned int numberOfDotProducts,
   }
 }
 #endif // RAW_CUDA
-
-void
-writeTimesMatrixToFile(const vector<vector<float> > & times,
-                       const string filename) {
-
-  const unsigned int numberOfDotProductSizes = times.size();
-  // yeah, yeah, kinda unsafe
-  const unsigned int numberOfMemorySizes = times[0].size();
-  char sprintfBuffer[500];
-  sprintf(sprintfBuffer, "%s.csv", filename.c_str());
-  FILE* file = fopen(sprintfBuffer, "w");
-  for (unsigned int dotProductSizeIndex = 0;
-       dotProductSizeIndex < numberOfDotProductSizes;
-       ++dotProductSizeIndex) {
-    for (unsigned int memorySizeIndex = 0;
-         memorySizeIndex < numberOfMemorySizes;
-         ++memorySizeIndex) {
-      if (memorySizeIndex > 0) {
-        fprintf(file, ", ");
-      }
-      fprintf(file, "%10.4e", times[dotProductSizeIndex][memorySizeIndex]);
-    }
-    fprintf(file, "\n");
-  }
-  fclose(file);
-}
-
-void
-checkAnswer(const vector<float> & correctResults,
-            const vector<float> & dotProductResults,
-            const unsigned int dotProductSize,
-            const unsigned int memorySize,
-            const string flavorName) {
-  for (unsigned int dotProductIndex = 0;
-       dotProductIndex < correctResults.size();
-       ++dotProductIndex) {
-    if (std::abs(correctResults[dotProductIndex] -
-                 dotProductResults[dotProductIndex]) /
-        std::abs(correctResults[dotProductIndex]) > 1e-4) {
-      fprintf(stderr, "invalid answer for dot product index %u for "
-              "flavor %s, "
-              "should be %e but we have %e, "
-              "dotProductSize = %u, memorySize = %8.2e\n",
-              dotProductIndex, flavorName.c_str(),
-              correctResults[dotProductIndex],
-              dotProductResults[dotProductIndex],
-              dotProductSize, float(memorySize));
-      exit(1);
-    }
-  }
-}
 
 #ifdef RAW_CUDA
 double
@@ -413,76 +312,6 @@ runSwitchingCudaTest(const unsigned int numberOfRepeats,
 
 #ifdef ENABLE_KOKKOS
 
-template <class DeviceType, class KokkosJunkVector>
-struct KokkosFunctor_ClearCache {
-
-  typedef size_t     value_type;
-  typedef DeviceType device_type;
-
-  KokkosJunkVector _junkDataToClearTheCache;
-
-  KokkosFunctor_ClearCache(KokkosJunkVector dev_junkDataToClearTheCache) :
-    _junkDataToClearTheCache(dev_junkDataToClearTheCache) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int index,
-                  value_type & junkDataCounter) const {
-    junkDataCounter += _junkDataToClearTheCache(index);
-  }
-
-private:
-  KokkosFunctor_ClearCache();
-
-};
-
-template <class DeviceType, class KokkosDataA, class KokkosDataB,
-          class KokkosDotProductResults>
-struct KokkosFunctor_Independent {
-
-  typedef DeviceType device_type;
-
-  const unsigned int _numCells;
-  const unsigned int _numPoints;
-  const unsigned int _dimVec;
-  KokkosDataA _data_A;
-  KokkosDataB _data_B;
-  KokkosDotProductResults _results;
-
-  KokkosFunctor_Independent(const unsigned int numCells,
-                            const unsigned int numPoints,
-                            const unsigned int dimVec,
-                            KokkosDataA data_A,
-                            KokkosDataB data_B,
-                            KokkosDotProductResults results) :
-    _numCells(numCells),
-    _numPoints(numPoints), 
-    _dimVec(dimVec),
-    _data_A(data_A), _data_B(data_B),
-    _results(results) {
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  void operator()(const unsigned int elementIndex) const {
-    const unsigned int cl = elementIndex % _numCells;
-    const unsigned int lbf = elementIndex / _numCells;
-
-    float tmpVal = 0;
-    for (int qp = 0; qp < _numPoints; qp++) {
-      for (int iVec = 0; iVec < _dimVec; iVec++) {
-        tmpVal += 
-          _data_A(cl, lbf, qp, iVec) *
-          _data_B(cl, qp, iVec);
-      } // D-loop
-    } // P-loop
-    _results(cl, lbf) = tmpVal;
-    
-  }
-
-private:
-  KokkosFunctor_Independent();
-
-};
 
 template <class DeviceType, class KokkosDataA, class KokkosDataB>
 double
@@ -1040,8 +869,9 @@ int main(int argc, char* argv[]) {
             int lbfDim = lbf * numPoints * dimVec;
 
             float tmpVal = 0;
-            for (int qp = 0; qp < _numPoints; qp++) {
-              for (int iVec = 0; iVec < _dimVec; iVec++) {
+            for (int qp = 0; qp < numPoints; qp++) {
+              int qpDim = qp * dimVec;
+              for (int iVec = 0; iVec < dimVec; iVec++) {
                 tmpVal += 
                   dotProductData_LayoutRight_A[clDimLeft + lbfDim + qpDim + iVec] *
                   dotProductData_LayoutRight_B[clDimRight + qpDim + iVec];
