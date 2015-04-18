@@ -79,33 +79,11 @@ TARGETS = CFFS
 
 all: $(TARGETS)
 
-GraphMaker: GraphMaker.cu
-	$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O3
-	#$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O0,-g
-
-
-ContractFieldFieldScalar: ContractFieldFieldScalar.cu
-	$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O3
-	#$(NVCC) -ccbin=$(NVCCSCC) $(NVCC_FLAGS) -O3 $(GENCODE_FLAGS) -I$(CUDA_INC_PATH) $(NVCC_INCLUDE) -o $@ $< $(NVCC_LD_FLAGS) -Xcompiler -fopenmp,-O0,-g
-
 CFFS_teams: CFFS_teams.cpp
 	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o CFFS_teams CFFS_teams.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
 
-TeamKokkos: GraphMaker.cpp
-	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o TeamKokkos GraphMaker.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
-
-
-
 CFFS: CFFS.cpp
 	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o CFFS CFFS.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
-
-
-
-
-
-Example: nested_parallel_for.cpp
-	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o example nested_parallel_for.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
-
 
 clean:
 	rm -f *.o $(TARGETS)
