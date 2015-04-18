@@ -1,4 +1,9 @@
-// Creation of FRED team Reduciton for CFFT
+/*
+ * Created by: Brett Collins and Ellen Hui
+ *
+ * This is an implementation of the FRED team reduction method (from 
+ * ContractDataDataTensor) for CFFT
+ */
 
 template<class LeftInputViewType, class RightInputViewType, class OutputViewType>
 struct CFFT_Fred_Reduction_TeamFunctor {

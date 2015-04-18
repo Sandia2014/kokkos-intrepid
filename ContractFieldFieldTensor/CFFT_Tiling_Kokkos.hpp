@@ -1,8 +1,12 @@
-// An implementation of CFFT that uses a modified matrix tiling algorithm.
-//
-// It effectively treats all of the contraction dimensions as a single dimension
-// for the purposes of tiling. (Compare to CFFS tiling)
-//
+/*
+ * Created by: Alex Gruver and Tyler Marklyn
+ *
+ * This is an implementation of ContractFieldFieldTensor that applies the
+ * tiling algorithm from ContractFieldFieldScalar.
+ *
+ * In order to do this, it treats all of the contraction dimensions as a single 
+ * dimension for the purpose of tiling (compare this functor to the one in CFFS)
+ */
 
 template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
 struct CFFS_Tiling_TeamFunctor_1D {
@@ -52,18 +56,21 @@ struct CFFS_Tiling_TeamFunctor_1D {
     // Here we pretend that all three contraction dimensions are a single dimension: contractionSize
     const unsigned int contractionSize = _dimTens1 * _dimTens2 * _numPoints;
 
+    // We use -1, +1 to compute the ceiling of the quotient.
     const unsigned int numberOfPointTiles = ((contractionSize-1) / _tile_size) + 1;
     const unsigned int numberOfBasisTiles = ((numBasis-1) / _tile_size) + 1;
 
+    // Figure out our row and column position within a tile
     const unsigned int numberOfTiles = _numCells * numberOfBasisTiles * numberOfBasisTiles;
     const unsigned int subRow = thread.team_rank() / _tile_size;
-    const unsigned int subCol = thread.team_rank() - subRow * _tile_size;
+    const unsigned int subCol = thread.team_rank() - subRow * _tile_size; // (mod)
 
     unsigned int resultTileIndex = thread.league_rank();
     Kokkos::View<float*, Kokkos::MemoryUnmanaged> tileStorage(thread.team_shmem(), 2 * _tile_size * _tile_size);
 
     while (resultTileIndex < numberOfTiles) {
 
+      // This is the resulting cell index
       const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
       const unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles); // (mod)
 

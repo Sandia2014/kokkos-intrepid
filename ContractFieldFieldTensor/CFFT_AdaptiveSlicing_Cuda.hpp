@@ -1,4 +1,6 @@
 /*
+ * Created by: Alex Gruver
+ *
  * This algorithm is identical to the one used in CFFT_AdaptiveSlicing_Kokkos, so for 
  * information on how exactly the algorithm works please refer to that file, as the two
  * approaches are the same except for minor syntax differences

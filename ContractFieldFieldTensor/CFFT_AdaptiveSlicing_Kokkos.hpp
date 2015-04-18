@@ -1,4 +1,6 @@
 /*
+ * Created by: Alex Gruver
+ *
  * This kernel uses a modified slicing approach to compute the output array.
  *
  * Instead of loading one row of the left input matrix into shared memory, it loads
@@ -84,8 +86,8 @@ struct CFFS_AdaptiveSlicing_TeamFunctor {
         const unsigned int tens1Index = pointMod / tens2;
         const unsigned int tens2Index = pointMod - (tens2 * tens1Index);
         sliceStorage(p + (threadRow*contractionSize)) = leftView(cell, row+threadRow, pointIndex, tens1Index,tens2Index);
-       }
-      
+      }
+
       //Once everything is loaded into shared memory, synchronize the threads again.
       thread.team_barrier();
       float sum = 0;
@@ -95,15 +97,15 @@ struct CFFS_AdaptiveSlicing_TeamFunctor {
       //we used to index into right and left view
       for (int p = 0; p < contractionSize; ++p) {
         const unsigned int pointIndex = p / (tens1*tens2);
-	const unsigned int pointMod = p - (pointIndex * (tens1*tens2));
+        const unsigned int pointMod = p - (pointIndex * (tens1*tens2));
         const unsigned int tens1Index = pointMod / tens2;
         const unsigned int tens2Index = pointMod - (tens2 * tens1Index);
 
         sum += sliceStorage(p + (threadRow*contractionSize)) *
-            rightView(cell,pointIndex,tens1Index,tens2Index,col);
-       }
-       //Write to outputView and we're done!
-       outputView(cell,row+threadRow,col) = sum;
+          rightView(cell,pointIndex,tens1Index,tens2Index,col);
+      }
+      //Write to outputView and we're done!
+      outputView(cell,row+threadRow,col) = sum;
     }
 
   }

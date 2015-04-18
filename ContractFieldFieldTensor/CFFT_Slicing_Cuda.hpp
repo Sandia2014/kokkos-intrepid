@@ -1,3 +1,13 @@
+/*
+ * Created by: Alex Gruver
+ *
+ * This is an adaptation of our slicing algorithm from ContractFieldFieldScalar
+ * to work for CFFT. It works by pretending all three contraction indicies are 
+ * a single index, since they are adjacent in memory.
+ *
+ * For a more detailed commented version, see the Kokkos version of this.
+ */
+
 __global__
 void
 doCudaContractions_Slicing_kernel(const unsigned int numberOfTensors,
@@ -27,7 +37,6 @@ doCudaContractions_Slicing_kernel(const unsigned int numberOfTensors,
       sliceStorage[p] = dev_tensorData_Left[cell*numLeftFields*contractionSize +
         row*contractionSize + p];
     }
-    //dev_contractionResults[cell*numRightFields*numLeftFields + row*numRightFields + col] = -1;
     syncthreads();
 
     float sum = 0;

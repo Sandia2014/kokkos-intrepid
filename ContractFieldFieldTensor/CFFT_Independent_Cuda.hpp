@@ -1,3 +1,9 @@
+/* 
+ * Created by: Alex Gruver
+ *
+ * This is the simple flat parallel scheme for CFFT implemented in raw cuda
+ */
+
 __global__
 void
 doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
@@ -13,17 +19,18 @@ doCudaTensors_Independent_kernel(const unsigned int numberOfTensors,
   unsigned int myID = blockIdx.x * blockDim.x + threadIdx.x;
   while (myID < (numberOfTensors * numLeftFields * numRightFields)) {
     float sum = 0;
+    // Calculate indices
     int myCell = myID / (numLeftFields * numRightFields);
     int matrixIndex = myID % (numLeftFields * numRightFields);
     int lbf = matrixIndex / numRightFields;
     int rbf = matrixIndex % numRightFields;
 
+    // For making indexing calculations easier:
     int clOff = numLeftFields*numPoints*tens1*tens2;
     int crOff = numRightFields*numPoints*tens1*tens2;
     int cOut = numLeftFields*numRightFields;
     int lOff = numPoints*tens1*tens2;
     int lOut = numRightFields;
-    //int rOff = numPoints*tens1*tens2;
     int pOff = tens1*tens2;
     int tenOff = tens2;
 
