@@ -1,3 +1,12 @@
+/*
+ * Created by: Alex Gruver
+ *
+ * This implements the Tiling scheme for CFFS in raw cuda.
+ *
+ * Note: This version is currently not as general as the Kokkos versions, as it only 
+ *       works when tileSize evenly divides numBasis and contractionSize
+ */
+
 __global__
 void
 doCudaContractions_Tiling_kernel(const unsigned int numCells,

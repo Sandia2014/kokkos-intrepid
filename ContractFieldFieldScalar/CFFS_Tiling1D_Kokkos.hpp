@@ -1,3 +1,16 @@
+/*
+ * Created by: Tyler Marklyn and Alex Gruver
+ *
+ * This implements the tiling scheme in Kokkos Cuda.
+ *
+ * Note: This version uses a 1D view in shared memory that holds both tiles and is
+ *       manually indexed. We did this in order to match the performance of raw
+ *       cuda tiling, which the 2D version did not match. 
+ *
+ *       If you want to learn how the tiling algorithm works, see the 2D version,
+ *       as it is better commented.
+ */
+
 template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
 struct CFFS_Tiling_TeamFunctor_1D {
   const unsigned int numCells;
@@ -35,16 +48,18 @@ struct CFFS_Tiling_TeamFunctor_1D {
   //NOTE: THIS WHOLE THING WORKS ASSUMING NUMLEFTFIELDS==NUMRIGHTFIELDS
   const unsigned int numBasis = numLeftFields;
 
+  // We do -1, +1 to get the ceiling
   const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
   const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
   const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
 
   const unsigned int subRow = thread.team_rank() / tile_size;
-  const unsigned int subCol = thread.team_rank()  - subRow * tile_size;
+  const unsigned int subCol = thread.team_rank()  - subRow * tile_size; // (mod)
 
   unsigned int resultTileIndex = thread.league_rank();
 
+  // A single View to hold both tiles.
   Kokkos::View<float*, Kokkos::MemoryUnmanaged> tileStorage(thread.team_shmem(), 2 * tile_size * tile_size);
 
   while (resultTileIndex < numberOfTiles) {
@@ -97,6 +112,7 @@ struct CFFS_Tiling_TeamFunctor_1D {
   }
 }
 
+  // Two tiles
   size_t team_shmem_size( int team_size ) const {
     return sizeof(float) * team_size * 2;
   }

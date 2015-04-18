@@ -82,7 +82,7 @@ all: $(TARGETS)
 CFFS_teams: CFFS_teams.cpp
 	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o CFFS_teams CFFS_teams.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
 
-ContractFieldFieldScalar: ContractFieldFieldScalar.cpp
+ContractFieldFieldScalar: ContractFieldFieldScalar.cpp CFFS_Independent_Cuda.hpp CFFS_Independent_Kokkos.hpp CFFS_Reduction.hpp CFFS_Slicing_Cuda.hpp CFFS_Slicing_Kokkos.hpp CFFS_Tiling1D_Kokkos.hpp CFFS_Tiling2D_Kokkos.hpp CFFS_Tiling_Cuda.hpp
 	/clinic/2014/sandia14/bin/nvcc_wrapper -std=c++11 -m64 -O3 -I/usr/local/cuda-6.5/include -I/clinic/2014/sandia14/TrilinosInstall-2014-02-03//include -o ContractFieldFieldScalar ContractFieldFieldScalar.cpp -fopenmp -L/clinic/2014/sandia14/TrilinosInstall-2014-02-03/lib -lkokkoscore -lhwloc -lgomp -lcudart -lcublas
 
 clean:

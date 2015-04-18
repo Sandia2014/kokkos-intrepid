@@ -1,3 +1,14 @@
+/*
+ * Created by: Alex Gruver and Tyler Marklyn
+ *
+ * This is the Tiling algorithm implemented in Kokkos Cuda
+ *
+ * Note: This version is outperformed by raw cuda, and by Kokkos_Tiling_1D. For 
+ *       some reason, the 2D views seem to slow down the algorithm. We believe it
+ *       has to do with uncoalesced memory accesses that we were unable to track
+ *       down in this version.
+ */
+
 template <class LeftInputViewType, class RightInputViewType, class OutputViewType>
 struct CFFS_Tiling_TeamFunctor {
   const unsigned int numCells;
@@ -35,23 +46,25 @@ struct CFFS_Tiling_TeamFunctor {
     //NOTE: THIS WHOLE THING WORKS ASSUMING NUMLEFTFIELDS==NUMRIGHTFIELDS
     const unsigned int numBasis = numLeftFields;
 
+    // We use -1, +1 to get the ceiling of numPoints/tile_size and numBasis/tile_size
     const unsigned int numberOfPointTiles = ((numPoints-1) / tile_size) + 1;
     const unsigned int numberOfBasisTiles = ((numBasis-1) / tile_size) + 1;
 
     const unsigned int numberOfTiles = numCells * numberOfBasisTiles * numberOfBasisTiles;
 
     const unsigned int subRow = thread.team_rank() / tile_size;
-    const unsigned int subCol = thread.team_rank()  - subRow * tile_size;
+    const unsigned int subCol = thread.team_rank()  - subRow * tile_size; // (mod)
 
     unsigned int resultTileIndex = thread.league_rank();
 
+    // Create our tiles
     Kokkos::View<float**, Kokkos::MemoryUnmanaged> LeftTileStorage(thread.team_shmem(), tile_size, tile_size);
     Kokkos::View<float**, Kokkos::MemoryUnmanaged> RightTileStorage(thread.team_shmem(), tile_size, tile_size);
 
     while (resultTileIndex < numberOfTiles) {
 
       const unsigned int resultMatrix = resultTileIndex / (numberOfBasisTiles * numberOfBasisTiles);
-      const unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles);
+      const unsigned int resultSubmatrixIndex = resultTileIndex - (resultMatrix * numberOfBasisTiles * numberOfBasisTiles); // (mod)
 
       // calculate result tile indices
       const unsigned int resultTileRow = resultSubmatrixIndex / numberOfBasisTiles;
@@ -65,10 +78,6 @@ struct CFFS_Tiling_TeamFunctor {
       // for tileNumber in 0...numberOfTilesPerSide
       for (unsigned int tileNumber = 0;
           tileNumber < numberOfPointTiles; ++tileNumber) {
-
-        // these are base indices into the shared memory
-        //const unsigned int leftBaseIndex = subRow * tile_size;
-        //const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
 
         // load the left and right tiles into shared memory
         if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
@@ -99,6 +108,7 @@ struct CFFS_Tiling_TeamFunctor {
 
   }
 
+  // Space for two tiles
   size_t team_shmem_size( int team_size ) const {
     return sizeof(float) * team_size * 2;
   }

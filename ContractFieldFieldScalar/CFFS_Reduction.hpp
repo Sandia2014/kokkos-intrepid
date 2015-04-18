@@ -1,4 +1,8 @@
-
+/*
+ * Created by: Ellen Hui
+ *
+ * This implements the simple reduction scheme for CFFS
+ */
 #ifndef KOKKOS_INCLUDES
 #define KOKKOS_INCLUDES
 #include <Kokkos_Core.hpp>

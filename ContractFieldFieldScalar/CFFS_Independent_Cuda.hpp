@@ -1,3 +1,8 @@
+/* Created by: Alex Gruver
+ *
+ * This implements the simple flat parallel algorithm in raw cuda.
+ */
+
 __global__
 void
 doCudaContractions_Independent_kernel(const unsigned int numberOfContractions,
