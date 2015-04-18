@@ -75,7 +75,7 @@ CC_FLAGS        += -std=c++11 -fopenmp
 NVCC_FLAGS      += -std=c++11
 NVCC_LD_FLAGS   += -lgomp
 
-TARGETS = CFFS_teams TeamKokkos CFFS
+TARGETS = CFFS
 
 all: $(TARGETS)
 
