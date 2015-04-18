@@ -37,7 +37,7 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 									_numRightFields(numRightFields),
 									_numPoints(numPoints),
 									_dim1Tens(dim1Tens),
-									_dim2Tens(dim2tens),
+									_dim2Tens(dim2Tens),
 									_leftView(leftView),
 									_rightView(rightView),
 									_outputView(outputView) {
@@ -57,7 +57,8 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 		const unsigned int matrixIndex = teamID % 
 											(_numLeftFields * _numRightFields);
 		const unsigned int matrixRow = matrixIndex / _numRightFields;
-		
+		// matrixCol = matrixIndex % _numRightFields
+		const unsigned int matrixCol = matrixIndex - (matrixRow * _numRightFields);
 		const unsigned int reductionSize = _numPoints * _dim1Tens * _dim2Tens;
 		
 		for (int index = teamID; index < reductionSize; index += teamSize) {
@@ -65,8 +66,8 @@ struct CFFT_Fred_Reduction_TeamFunctor {
 			const unsigned int dim1 = (index % (_dim1Tens * _dim2Tens)) / _dim2Tens;
 			const unsigned int dim2 = index % _dim2Tens;
 
-			threadSum += _leftInput(myMatrix, matrixRow, qp, dim1, dim2) *
-						 _rightInput(myMatrix,matrixCol, qp, dim1, dim2);
+			threadSum += _leftView(myMatrix, matrixRow, qp, dim1, dim2) *
+						 _rightView(myMatrix,matrixCol, qp, dim1, dim2);
 		}
 
 		Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, teamSize),
