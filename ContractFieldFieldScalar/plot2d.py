@@ -126,6 +126,7 @@ for tick in ax.xaxis.get_major_ticks():
 
 localLabels = ["Serial", "Flat Parallel", "Shared Memory"]
 ax2d.legend(localLabels, loc=4)
+plt.tight_layout()
 
 filename = outputPrefix + "LimitedFixedSize_RawTimes_2d_UseCase" + str(3) + suffix
 plt.savefig(filename + ".pdf")
