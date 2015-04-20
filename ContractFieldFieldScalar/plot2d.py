@@ -112,9 +112,17 @@ plt.plot(numberOfCells, serialTimes,
 plt.xscale('log')
 plt.yscale('log')
 #plt.title('Raw Times Use Case #%d' % 3, fontsize=16)
-plt.xlabel('Number of Contractions', fontsize=20)
-plt.ylabel('Time [seconds] (Log10 scale)', fontsize=20)
+plt.xlabel('Number of Contractions', fontsize=24)
+plt.ylabel('Time [seconds] (Log10 scale)', fontsize=24)
 plt.xlim(numberOfCells[0], numberOfCells[-1])
+
+ax= plt.axes()
+
+for tick in ax.yaxis.get_major_ticks():
+    tick.label.set_fontsize(20)
+for tick in ax.xaxis.get_major_ticks():
+    tick.label.set_fontsize(20)
+
 
 localLabels = ["Serial", "Flat Parallel", "Shared Memory"]
 ax2d.legend(localLabels, loc=4)
