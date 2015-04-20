@@ -111,12 +111,12 @@ plt.plot(numberOfCells, serialTimes,
 
 plt.xscale('log')
 plt.yscale('log')
-plt.title('Raw Times Use Case #%d' % 3, fontsize=16)
-plt.xlabel('Number of Contractions', fontsize=16)
-plt.ylabel('Time [seconds] (Log10 scale)', fontsize=16)
+#plt.title('Raw Times Use Case #%d' % 3, fontsize=16)
+plt.xlabel('Number of Contractions', fontsize=20)
+plt.ylabel('Time [seconds] (Log10 scale)', fontsize=20)
 plt.xlim(numberOfCells[0], numberOfCells[-1])
 
-localLabels = ["Serial", "Kokkos Cuda Flat Parallel", "Kokkos Cuda Tiling"]
+localLabels = ["Serial", "Flat Parallel", "Shared Memory"]
 ax2d.legend(localLabels, loc=4)
 
 filename = outputPrefix + "LimitedFixedSize_RawTimes_2d_UseCase" + str(3) + suffix
