@@ -6,9 +6,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import csv
-from matplotlib import rcParams
-rcParams.update({'figure.autolayout': True})
-
 
 prefix = 'rl125p216t16/ContractFieldFieldScalar_'
 outputPrefix = 'figures/'
@@ -123,6 +120,10 @@ for tick in ax.yaxis.get_major_ticks():
     tick.label.set_fontsize(20)
 for tick in ax.xaxis.get_major_ticks():
     tick.label.set_fontsize(20)
+
+plt.tight_layout() 
+fig = matplotlib.pyplot.gcf()
+fig.set_size_inches(14,10)
 
 
 localLabels = ["Serial", "Flat Parallel", "Shared Memory"]
