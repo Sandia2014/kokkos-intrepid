@@ -76,6 +76,7 @@ bbox_to_anchor2d = (1.87, 0.5)
 
 # make an image of just the number of dot products
 # TODO: you might want to make an image of the number of cells, so you'd adjust this.
+"""
 fig3d = plt.figure(0)
 ax = fig3d.gca(projection='3d')
 ax.view_init(elev=0, azim=-111)
@@ -91,7 +92,7 @@ if (makeImageFiles == True):
   print 'saved file to %s' % filename
 else:
   plt.show()
-
+"""
 # goal: make images showing just the raw times
 # find the min and max values across all flavors so that the color scale is the same for each graph
 maxValue = -10
