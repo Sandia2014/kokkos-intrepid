@@ -28,7 +28,8 @@ cudaReductionTimes = numpy.loadtxt(open(prefix + 'cudaReductionTimes' + suffix +
 cudaSwitchingTimes = numpy.loadtxt(open(prefix + 'cudaSwitchingTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosOmpTimes = numpy.loadtxt(open(prefix + 'kokkosOmpTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
 kokkosCudaIndependentTimes = numpy.loadtxt(open(prefix + 'kokkosCudaIndependentTimes' + suffix + '.csv','rb'),delimiter=',',skiprows=0)
-
+cudaSlicingTimes = numpy.loadtxt(open(prefix + 'cudaSlicingTimes' + suffix + '.csv','rb'), delimiter=',',skiprows=0)
+cudaAdaptiveSlicingTimes = numpy.loadtxt(open(prefix + 'cudaAdaptiveSlicingTimes' + suffix + '.csv','rb'), delimiter=',', skiprows=0)
 # set up a list of the times and names, for easy iteration later
 # TODO: make this consistent with the files that you read in and/or care about
 allTimes = []
@@ -40,18 +41,21 @@ allNames.append('serial')
 #allTimes.append(ompTimes)
 #allNames.append('omp')
 # NOTE: if you are doing comparisons against cuda time, it's assumed that the third entry in allTimes is cuda.  if you aren't doing those comparisons, you should go disable that portion of this script.
-#allTimes.append(cudaIndependentTimes)
-#allNames.append('cudaIndependent')
+allTimes.append(cudaIndependentTimes)
+allNames.append('cudaIndependent')
 # there are no assumptions about the rest of the ordering
 #allTimes.append(cudaReductionTimes)
 #allNames.append('cudaReduction')
 #allTimes.append(cudaSwitchingTimes)
 #allNames.append('cudaSwitching')
-allTimes.append(kokkosOmpTimes)
-allNames.append('kokkosOmp')
-allTimes.append(kokkosCudaIndependentTimes)
-allNames.append('kokkosCudaIndependent')
-
+#allTimes.append(kokkosOmpTimes)
+#allNames.append('kokkosOmp')
+#allTimes.append(kokkosCudaIndependentTimes)
+#allNames.append('kokkosCudaIndependent')
+allTimes.append(cudaSlicingTimes)
+allNames.append('cudaSlicing')
+allTimes.append(cudaAdaptiveSlicingTimes)
+allNames.append('cudaAdaptiveSlicingTimes')
 # these are toggles for whether to make image files and whether to make orbit files for making movies
 makeImageFiles = True
 #makeImageFiles = False
@@ -248,10 +252,9 @@ for memorySizeIndex in [-1, 0]:
   else:
     plt.show()
 
-sys.exit(1)
-
 # now make relative speedup over openmp
 # TODO: you might disable this part
+"""
 maxSpeedup = -10
 minSpeedup = 10
 for timesIndex in numpy.arange(2, len(allTimes)):
@@ -309,24 +312,24 @@ for memorySizeIndex in [-1, 0]:
     print 'saved file to %s' % filename
   else:
     plt.show()
-
+"""
 # relative speedup over cudaIndependent
 # TODO: you might disable this part
 maxSpeedup = -10
 minSpeedup = 10
-for timesIndex in numpy.arange(3, len(allTimes)):
-  maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[2] / allTimes[timesIndex]))])
-  minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[2] / allTimes[timesIndex]))])
+for timesIndex in numpy.arange(2, len(allTimes)):
+  maxSpeedup = numpy.max([maxSpeedup, numpy.max(log10(allTimes[1] / allTimes[timesIndex]))])
+  minSpeedup = numpy.min([minSpeedup, numpy.min(log10(allTimes[1] / allTimes[timesIndex]))])
 colorNormalizer = matplotlib.colors.Normalize(vmin=minSpeedup, vmax=maxSpeedup)
 # intentionally start at 3 so that i don't compare cuda or serial or omp to cuda
-for timesIndex in numpy.arange(3, len(allTimes)):
+for timesIndex in numpy.arange(2, len(allTimes)):
   fig3d = plt.figure(0)
   plt.clf()
   times = allTimes[timesIndex]
   name = allNames[timesIndex]
   ax = fig3d.gca(projection='3d')
   ax.view_init(elev=0, azim=-111)
-  surf = ax.plot_surface(log10(tensorSize), log10(memorySize), log10(allTimes[2] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
+  surf = ax.plot_surface(log10(tensorSize), log10(memorySize), log10(allTimes[1] / times), rstride=1, cstride=1, cmap=cm.coolwarm, linewidth=0.5, antialiased=False)
   surf.set_norm(colorNormalizer)
   plt.xlabel('log10(tensorSize)')
   plt.ylabel('log10(memorySize)')
@@ -353,7 +356,7 @@ for memorySizeIndex in [-1, 0]:
   for timesIndex in range(len(allTimes)):
     times = allTimes[timesIndex]
     name = allNames[timesIndex]
-    plt.plot(tensorSize[:, memorySizeIndex], allTimes[2][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
+    plt.plot(tensorSize[:, memorySizeIndex], allTimes[1][:, memorySizeIndex] / times[:, memorySizeIndex], markers[timesIndex], color=colors[timesIndex], hold='on', linewidth=2)
     legendNames.append(name)
   plt.xscale('log')
   plt.yscale('log')
@@ -369,7 +372,7 @@ for memorySizeIndex in [-1, 0]:
     print 'saved file to %s' % filename
   else:
     plt.show()
-
+sys.exit(1)
 
 # these graphs are essentially duplicates of ones made already, but with a linear scale instead of logarithmic (by request of carter).
 # these graphs just compare kokkos omp versus openmp and kokkos cuda versus cuda

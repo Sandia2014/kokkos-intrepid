@@ -27,7 +27,6 @@ using std::array;
 #include <omp.h>
 #include <Kokkos_Core.hpp>
 
-
 typedef Kokkos::DefaultExecutionSpace Device;
 typedef Kokkos::HostSpace::execution_space Host;
 typedef Kokkos::TeamPolicy<Device> team_policy;
@@ -1597,11 +1596,11 @@ int main(int argc, char* argv[]) {
                                      vector<float>(numberOfMemorySizes, 0));
 
   vector<vector<float> >
-    kokkosSlicingTimesMatrix(numberOfContractionSizes,
+    kokkosSlicingTimesMatrix(numberOfTensorSizes,
                                    	 vector<float>(numberOfMemorySizes, 0));
 
   vector<vector<float> >
-    kokkosAdaptiveSlicingTimesMatrix(numberOfContractionSizes,
+    kokkosAdaptiveSlicingTimesMatrix(numberOfTensorSizes,
                                      vector<float>(numberOfMemorySizes, 0));
 
 
@@ -2101,7 +2100,7 @@ int main(int argc, char* argv[]) {
                                               &tensorResults,
                                               KokkosStyle_Independent,
                                               0);
-      }
+      }/*
 	  {
         typedef Kokkos::Cuda                               DeviceType;
         typedef Kokkos::View<float*****, Kokkos::LayoutRight,
@@ -2129,7 +2128,7 @@ int main(int argc, char* argv[]) {
                                               &tensorResults,
                                               KokkosStyle_Independent,
                                               0);
-      }
+      }*/
 
       {
         typedef Kokkos::Cuda                               DeviceType;
@@ -2137,9 +2136,9 @@ int main(int argc, char* argv[]) {
                              DeviceType>                   KokkosData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
-        kokkosSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
+        kokkosSlicingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
           runKokkosSlicingTest<DeviceType,
-          KokkosContractionData>(numberOfContractions,
+          KokkosData>(numberOfTensors,
               numberOfRepeats,
               numLeftFields,
               numRightFields,
@@ -2155,7 +2154,7 @@ int main(int argc, char* argv[]) {
               junkDataToClearTheCache,
               &junkDataCounter,
               &totalNumberOfRepeats,
-              &contractionResults,
+              &tensorResults,
               KokkosStyle_Slicing);
       }
       {
@@ -2164,9 +2163,9 @@ int main(int argc, char* argv[]) {
                              DeviceType>                   KokkosData;
         // i pass in the layout right version even though this is the cuda
         //  version because it gets copied into the view inside the function.
-        kokkosAdaptiveSlicingTimesMatrix[contractionSizeIndex][memorySizeIndex] =
-          runKokkosAdaptiveSlicingTest<DeviceType,
-          KokkosContractionData>(numberOfContractions,
+        kokkosAdaptiveSlicingTimesMatrix[tensorSizeIndex][memorySizeIndex] =
+          runKokkosSlicingTest<DeviceType,
+          KokkosData>(numberOfTensors,
               numberOfRepeats,
               numLeftFields,
               numRightFields,
@@ -2182,7 +2181,7 @@ int main(int argc, char* argv[]) {
               junkDataToClearTheCache,
               &junkDataCounter,
               &totalNumberOfRepeats,
-              &contractionResults,
+              &tensorResults,
               KokkosStyle_AdaptiveSlicing);
       }
       {
