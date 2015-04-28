@@ -923,8 +923,8 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 
 	KokkosContractionData dev_kokkosContractionData_Right("kokkos data A",
 			numberOfContractions,
-			numPoints,
-			numRightFields);
+			numRightFields,
+			numPoints);
 	KokkosContractionData_Host kokkosContractionData_Right =
 		Kokkos::create_mirror_view(dev_kokkosContractionData_Right);
 
@@ -952,7 +952,7 @@ runKokkosTeamReductionTest(const unsigned int numberOfContractions,
 	for (int cl = 0; cl < numberOfContractions; ++cl) {
 		for (int qp = 0; qp < numPoints; ++qp) {
 			for(int rbf = 0; rbf < numRightFields; ++rbf) {
-				kokkosContractionData_Right(cl, qp, rbf) =
+				kokkosContractionData_Right(cl, rbf, qp) =
 					contractionData_LayoutRight_Right.at(cl*numRightFields*numPoints
 							+ rbf*numPoints + qp);
 			}

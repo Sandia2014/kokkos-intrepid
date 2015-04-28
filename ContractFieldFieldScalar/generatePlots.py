@@ -55,8 +55,8 @@ allNames.append('cudaIndependent')
 #allNames.append('kokkosOmp')
 #allTimes.append(kokkosCudaIndependentTimes)
 #allNames.append('kokkosCudaIndependent')
-#allTimes.append(kokkosTeamReductionTimes)
-#allNames.append('kokkosTeamReductionTimes')
+allTimes.append(kokkosTeamReductionTimes)
+allNames.append('kokkosTeamReductionTimes')
 #allTimes.append(kokkosSlicingTimes)
 #allNames.append('kokkosSlicingTimes')
 #allTimes.append(kokkosTilingTimes)
@@ -137,6 +137,8 @@ for timesIndex in range(len(allTimes)):
     print 'saved file to %s' % filename
   else:
     plt.show()
+
+"""
 # make a 2D plot of all flavors, for the smallest and largest sizes of memory
 fig2d = plt.figure(1)
 for memorySizeIndex in [-1, 0]:
@@ -161,7 +163,7 @@ for memorySizeIndex in [-1, 0]:
     print 'saved file to %s' % filename
   else:
     plt.show()
-
+"""
 
 # now make plots that are normalized by memory size
 maxValue = -10
@@ -235,6 +237,7 @@ for timesIndex in numpy.arange(1, len(allTimes)):
         print 'saved file to %s' % filename
   else:
     plt.show()
+"""
 fig2d = plt.figure(1)
 for memorySizeIndex in [-1, 0]:
   legendNames = []
@@ -260,7 +263,7 @@ for memorySizeIndex in [-1, 0]:
   else:
     plt.show()
 
-
+"""
 # now make relative speedup over openmp
 # TODO: you might disable this part
 """
