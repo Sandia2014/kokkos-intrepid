@@ -74,7 +74,8 @@ numberOfOrbitFrames = 100
 
 #markerPool = ['-', '--', ':']
 markerPool = ['-', '--']
-colors = cm.gist_ncar(numpy.linspace(1, 0, len(allTimes)))
+colors = ['b', 'r', 'k']
+#colors = cm.gist_ncar(numpy.linspace(1, 0, len(allTimes)))
 markers = []
 for i in range(len(allTimes)):
   markers.append(markerPool[i % len(markerPool)])
