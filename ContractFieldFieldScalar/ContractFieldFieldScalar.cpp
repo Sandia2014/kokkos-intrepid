@@ -35,6 +35,7 @@ typedef Kokkos::TeamPolicy<Device> team_policy;
 typedef team_policy::member_type team_member;
 #endif
 
+#include "CFFS_Independent_Kokkos_Best_Mem_Access.hpp"
 #include "CFFS_Reduction.hpp"
 #include "CFFS_Independent_Cuda.hpp"
 #include "CFFS_Slicing_Cuda.hpp"
@@ -920,7 +921,7 @@ runKokkosBestMemTest(const unsigned int numberOfContractions,
 
 
   // breaking formatting convention because holy freak that's long
-  contractFieldFieldScalarKokkosCudaFunctor<DeviceType,
+  contractFieldFieldScalarKokkosCudaMemFunctor<DeviceType,
                             KokkosContractionData,
 			    KokkosContractionData,
                             KokkosContractionResults>
@@ -1861,8 +1862,8 @@ int main(int argc, char* argv[]) {
   // ********************** < input> ******************************
   // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
   const vector<unsigned int> contractionSizes =
-    {{/*8, 16, 32,*/ 8, 64,70, 2048/*128, 512, 1024/*, 2048*/}};
-  const array<float, 2> memorySizeExtrema = {{1e6, 1e8}};
+    {{/*8, 16, 32,*/ 8, 64, 128, 256, 512/*128, 512, 1024/*, 2048*/}};
+  const array<float, 2> memorySizeExtrema = {{1e6, 1e9}};
   const unsigned int numberOfMemorySizes = 5;
   const unsigned int maxNumberOfCudaBlocks = unsigned(1e4);
   const unsigned int tile_size = 8;
