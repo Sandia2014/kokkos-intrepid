@@ -114,7 +114,7 @@ struct CFFS_Reduction_TeamFunctor {
 				Kokkos::parallel_reduce(Kokkos::TeamThreadLoop(thread, _numPoints), 
 						[&] (const unsigned int& i, float& localSum) {
 						localSum += _leftView(myMatrix, matrixRow, i) 
-						* _rightView(myMatrix, i, matrixCol);
+						* _rightView(myMatrix, matrixCol, i);
 						}, 
 						sum);
 				
