@@ -24,7 +24,7 @@ struct CFFS_Tiling_TeamFunctor_1D_BestMem {
   const unsigned int tile_size;
 
 
-  CFFS_Tiling_TeamFunctor_1D(const unsigned int _numCells,
+  CFFS_Tiling_TeamFunctor_1D_BestMem(const unsigned int _numCells,
       const unsigned int _numLeftFields,
       const unsigned int _numRightFields,
       const unsigned int _numPoints,
