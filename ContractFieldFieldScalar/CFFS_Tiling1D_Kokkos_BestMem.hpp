@@ -24,7 +24,7 @@ struct CFFS_Tiling_TeamFunctor_1D_BestMem {
   const unsigned int tile_size;
 
 
-  CFFS_Tiling_TeamFunctor_1D(const unsigned int _numCells,
+  CFFS_Tiling_TeamFunctor_1D_BestMem(const unsigned int _numCells,
       const unsigned int _numLeftFields,
       const unsigned int _numRightFields,
       const unsigned int _numPoints,
@@ -93,7 +93,7 @@ struct CFFS_Tiling_TeamFunctor_1D_BestMem {
 
       if (resultMatrix < numCells && tileNumber * tile_size + subRow < numPoints && col < numBasis)
         tileStorage(thread.team_rank() + (tile_size * tile_size)) =
-                 rightView(resultMatrix,col,tileNumber * tile_size + subRow);
+                 rightView(resultMatrix,col,tileNumber * tile_size + subCol);
       else
         tileStorage(thread.team_rank() + (tile_size * tile_size)) = 0.0;
 
