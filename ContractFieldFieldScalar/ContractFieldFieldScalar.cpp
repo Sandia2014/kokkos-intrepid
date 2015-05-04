@@ -44,6 +44,7 @@ typedef team_policy::member_type team_member;
 #include "CFFS_Slicing_Kokkos.hpp"
 #include "CFFS_Tiling1D_Kokkos.hpp"
 #include "CFFS_Tiling2D_Kokkos.hpp"
+#include "CFFS_Tiling1D_Kokkos_BestMem.hpp"
 
 enum CudaStyle {CudaStyle_Independent,
                 CudaStyle_Reduction,
