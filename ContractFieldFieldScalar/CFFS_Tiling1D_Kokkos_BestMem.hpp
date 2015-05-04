@@ -83,7 +83,7 @@ struct CFFS_Tiling_TeamFunctor_1D_BestMem {
 
       // these are base indices into the shared memory
       const unsigned int leftBaseIndex = subRow * tile_size;
-      const unsigned int rightBaseIndex = tile_size*tile_size + subCol;
+      const unsigned int rightBaseIndex = tile_size*tile_size + (subCol * tile_size);
 
       // load the left and right tiles into shared memory
       if (resultMatrix < numCells && row < numBasis && tileNumber*tile_size + subCol < numPoints)
@@ -102,7 +102,7 @@ struct CFFS_Tiling_TeamFunctor_1D_BestMem {
       for (unsigned int dummy = 0; dummy < tile_size; ++dummy) {
         sum +=
           tileStorage(leftBaseIndex + dummy) *
-          tileStorage(rightBaseIndex + dummy * tile_size);
+          tileStorage(rightBaseIndex + dummy);
       }
       thread.team_barrier();
     }
