@@ -46,6 +46,7 @@ struct contractFieldFieldScalarKokkosCudaMemFunctor {
 		    temp += _leftFields(myCell, matrixRow, qp) * _rightFields(myCell, matrixCol, qp);
 		}
 		_outputFields(myCell, matrixRow, matrixCol) = temp;
+	    
 	    }
 
 
