@@ -84,7 +84,7 @@ struct CFFS_Reduction_TeamFunctor {
 
 				// Do my one multiplication
 				float mult = _leftView(myMatrix, matrixRow, pointIndex) 
-					* _rightView(myMatrix, pointIndex, matrixCol);
+					* _rightView(myMatrix, matrixCol, pointIndex);
 
 				// Update the correct reduction location
 				Kokkos::atomic_fetch_add(&_outputView(myMatrix, matrixRow, matrixCol), mult);
